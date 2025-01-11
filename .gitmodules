@@ -1,0 +1,6 @@
+[submodule "External/GuelderConsoleLog"]
+	path = External/GuelderConsoleLog
+	url = https://github.com/k03440k/GuelderConsoleLog.git
+[submodule "External/GuelderResourcesManager"]
+	path = External/GuelderResourcesManager
+	url = https://github.com/k03440k/GuelderResourcesManager.git
