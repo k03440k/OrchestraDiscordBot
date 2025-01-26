@@ -1,6 +1,3 @@
-//ONLY RELEASE WORKS
-//Holy fucking shit, ONLY THIS ORDER OF INCLUDES
-#if 1
 #include <GuelderResourcesManager.hpp>
 #include <dpp/dpp.h>
 #include <GuelderConsoleLog.hpp>
@@ -16,10 +13,35 @@ extern "C"
 }
 
 #include <thread>
-#include <filesystem>
+#include <atomic>
+#include <mutex>
+#include <functional>
+#include <future>
+#include <chrono>
 
-GE_DECLARE_LOG_CATEGORY_EXTERN(DiscordBot, All, true, false, true);
-GE_DEFINE_LOG_CATEGORY(DiscordBot);
+using namespace GuelderConsoleLog;
+using namespace GuelderResourcesManager;
+
+GE_DECLARE_LOG_CATEGORY_EXTERN(DPP, All, true, false, true);
+GE_DEFINE_LOG_CATEGORY(DPP);
+
+//Fucking Slave Discord Bot
+GE_DECLARE_LOG_CATEGORY_EXTERN(FSDB, All, true, false, true);
+GE_DEFINE_LOG_CATEGORY(FSDB);
+
+#define LogInfo(...) GE_LOG(FSDB, Info, __VA_ARGS__)
+#define LogWarning(...) GE_LOG(FSDB, Warning, __VA_ARGS__)
+#define LogError(...) GE_LOG(FSDB, Error, __VA_ARGS__)
+
+bool StringToBool(const std::string_view& str)
+{
+    if(str == "true")
+        return true;
+    else if(str == "false")
+        return false;
+    else
+        throw(std::exception("Failed to convert string to bool"));
+}
 
 void BotLogger(const dpp::log_t& log);
 
@@ -38,11 +60,11 @@ public:
         m_CodecContext(nullptr, FreeAVCodecContext), m_SwrContext(nullptr, FreeSwrContext), m_Packet(nullptr, FreeAVPacket), m_Frame(nullptr, FreeAVFrame), m_AudioStreamIndex(std::numeric_limits<uint32_t>::max())
     {
         AVDictionary* options = nullptr;
-        av_dict_set(&options, "buffer_size", "10485760", 0); // 10 MB buffer
-        av_dict_set(&options, "rw_timeout", "5000000", 0);   // 5 seconds timeout
+        //av_dict_set(&options, "buffer_size", "10485760", 0); // 10 MB buffer
+        //av_dict_set(&options, "rw_timeout", "5000000", 0);   // 5 seconds timeout
 
         auto ptr = m_FormatContext.get();
-        GE_ASSERT(avformat_open_input(&ptr, url.data(), nullptr, &options) == 0, "Failed to open url: ", url);
+        GE_ASSERT(avformat_open_input(&ptr, url.data(), nullptr, nullptr) == 0, "Failed to open url: ", url);
 
         GE_ASSERT((avformat_find_stream_info(m_FormatContext.get(), nullptr)) >= 0, "Failed to retrieve stream info.");
 
@@ -119,6 +141,7 @@ public:
     }
 
     bool AreThereFramesToProcess() const { return (av_read_frame(m_FormatContext.get(), m_Packet.get()) == 0); }
+    //in seconds
     int64_t GetDuration() const { return m_FormatContext->duration / AV_TIME_BASE; }
     int GetMaxBufferSize(const AVSampleFormat& sampleFormat) const
     {
@@ -163,108 +186,299 @@ private:
     }
 };
 
-int main(int argc, char** argv)
+struct Command
 {
-    using namespace GuelderConsoleLog;
-    using namespace GuelderResourcesManager;
-    try
+public:
+    Command(const std::string_view& name, const std::function<void(const dpp::message_create_t& message)>& func, const std::string_view& description = "")
+        : func(func), name(name), description(description) {}
+    Command(std::string&& name, std::function<void(const dpp::message_create_t& message)>&& func, std::string&& description = "")
+        : func(std::move(func)), name(std::move(name)), description(std::move(description)) {}
+    ~Command() = default;
+
+    Command(const Command& other)
+        : func(other.func), name(other.name), description(other.description) {}
+    Command(Command&& other) noexcept
+        : func(std::move(other.func)), name(std::move(other.name)), description(std::move(other.description)) {}
+
+    void operator()(const dpp::message_create_t& message) const
     {
-        ResourcesManager resourcesManager{ argv[0] };
+        func(message);
+    }
 
-        const auto& t = resourcesManager.GetResourcesVariableContent("botToken");
+    const std::function<void(const dpp::message_create_t& message)> func;
+    const std::string name;
+    const std::string description;
+};
 
-        LogInfo("Found token: ", t);
+class DiscordBot : protected dpp::cluster
+{
+public:
+    DiscordBot(const std::string_view& token, const std::string_view& prefix, uint32_t intents = dpp::i_all_intents)
+        : dpp::cluster(token.data(), intents), m_Prefix(prefix) {}
+    ~DiscordBot() override = default;
 
-        dpp::cluster bot{ t.data(), dpp::i_all_intents };
-
-        bot.on_log(BotLogger);
-
-        bot.on_message_create([&](const dpp::message_create_t& message)
+    void AddCommand(const Command& command)
+    {
+        m_Commands.push_back(command);
+    }
+    void AddCommand(Command&& command)
+    {
+        m_Commands.push_back(std::move(command));
+    }
+    void RegisterCommands()
+    {
+        on_message_create(
+            [&](const dpp::message_create_t& message)
             {
-                if(message.msg.content == "!ping")
-                    message.reply("pong!");
-                if(message.msg.content == "!join")
+                if(message.msg.author.id != me.id)
+                {
+                    const auto& content = message.msg.content;
+                    for(auto& command : m_Commands)
+                    {
+                        const size_t found = content.find(command.name);
+                        const size_t prefixSize = m_Prefix.size();
+
+                        if(found != std::string::npos && found > 0 && found >= prefixSize && content.substr(found - prefixSize, prefixSize) == m_Prefix)
+                        {
+                            LogInfo("User with snowflake: ", message.msg.author.id, " has just called \"", command.name, "\" command.");
+                            //use threads
+                            //std::async(std::launch::async, [command, message]{command(message);});
+                            std::thread commandThread{ [command, message] { command(message); } };
+                            commandThread.detach();
+                        }
+                    }
+                }
+            }
+        );
+    }
+
+    void Run()
+    {
+        set_websocket_protocol(dpp::ws_etf);
+
+        start(dpp::st_wait);
+    }
+
+protected:
+    const std::string m_Prefix;
+    std::vector<Command> m_Commands;
+};
+
+class FuckingSlaveDiscordBot : public DiscordBot
+{
+public:
+    FuckingSlaveDiscordBot(const std::string_view& token, const std::string_view& prefix, const std::string_view& path, uint32_t intents = dpp::i_all_intents)
+        : DiscordBot(token, prefix, intents), m_ResourcesManager(path)
+    {
+        this->on_voice_state_update(
+            [this](const dpp::voice_state_update_t& voiceState)
+            {
+                if(voiceState.state.user_id == this->me.id)
+                {
+                    if(!voiceState.state.channel_id.empty())
+                    {
+                        m_IsJoined = true;
+                        m_JoinedCondition.notify_all();
+                        LogInfo("Has just joined to ", voiceState.state.channel_id, " channel in ", voiceState.state.guild_id, " guild.");
+                    }
+                    else
+                    {
+                        m_IsJoined = false;
+                        m_IsPlaying = false;
+                        m_JoinedCondition.notify_all();
+                        LogInfo("Has just disconnected from voice channel.");
+                    }
+                }
+            }
+        );
+
+        //help
+        this->AddCommand({ "help",
+            [this](const dpp::message_create_t& message)
+            {
+                std::stringstream outStream;
+
+                std::ranges::for_each(this->m_Commands, [&outStream, this](const Command& command) { outStream << m_Prefix << command.name << " - " << command.description << '\n'; });
+
+                message.reply(outStream.str());
+            },
+            "Prints out all available commands and also the command's description if it exists."
+            });
+        //play
+        this->AddCommand({ "play",
+            [this](const dpp::message_create_t& message)
+            {
+                //join
+                if(!m_IsJoined)
                 {
                     if(!dpp::find_guild(message.msg.guild_id)->connect_member_voice(message.msg.author.id))
                         message.reply("You don't seem to be in a voice channel!");
                     else
                         message.reply("Joining your voice channel!");
                 }
-                if(message.msg.content == "!leave")
+
+                const std::string inUrl = message.msg.content.substr(6);
+
+                LogInfo("Received music url: ", inUrl);
+
+                const std::string_view yt_dlpPath = m_ResourcesManager.GetResourcesVariableContent("yt_dlp");
+
+                const std::string rawUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", inUrl, '\"'), 1)[0];
+                //const std::string title = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --print \"%(title)s\" \"", inUrl, '\"'))[0];
+
+                //const auto _urlCount = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist --print \"%(playlist_count)s\" \"", inUrl, '\"'), 1);
+                //const size_t urlCount = (!_urlCount.empty() && !_urlCount[0].empty() && _urlCount[0] != "NA" ? std::atoi(_urlCount[0].data()) : 0);
+
+                LogInfo("Received raw url to audio: ", rawUrl);
+
+                std::unique_lock joinLock{m_JoinMutex};
+                if(!m_JoinedCondition.wait_for(joinLock, std::chrono::seconds(10), [this] { return m_IsJoined == true; }))
+                    return;
+
+                dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
+                if(!v || !v->voiceclient || !v->voiceclient->is_ready())
                 {
-                    dpp::voiceconn* voice = bot.get_shard(0)->get_voice(message.msg.guild_id);
+                    message.reply("There was an issue joining the voice channel. Please make sure I am in a channel.");
+                    return;
+                }
+
+                const auto bufferSize = std::atoi(m_ResourcesManager.GetResourcesVariableContent("maxPacketSize").data());
+                const auto logSentPackets = StringToBool(m_ResourcesManager.GetResourcesVariableContent("logSentPackets").data());
+
+                std::lock_guard playbackLock{m_PlaybackMutex};
+
+                PlayAudio(v, rawUrl, bufferSize, logSentPackets);
+                /*for(size_t i = 1; i <= urlCount; ++i)
+                {
+                    const std::string currentUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url --playlist-items", i, " \"", inUrl, '\"'))[0];
+                    PlayAudio(v, rawUrl, bufferSize, logSentPackets);
+                }*/
+            },
+            "I should join your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
+            });
+        //leave
+        this->AddCommand({ "leave",
+            [this](const dpp::message_create_t& message)
+            {
+                dpp::voiceconn* voice = this->get_shard(0)->get_voice(message.msg.guild_id);
+
+                if(voice && voice->voiceclient && voice->is_ready())
+                {
+                    m_IsJoined = false;
+                    m_IsPlaying = false;
+                    this->get_shard(0)->disconnect_voice(message.msg.guild_id);
+                }
+                else
+                    message.reply("I'm not in a voice channel");
+            },
+            "Disconnects from a voice channel if it is in it."
+            });
+        //terminate
+        this->AddCommand({ "terminate",
+            [this](const dpp::message_create_t& message)
+            {
+                if(message.msg.author.id == 465169363230523422)//k03440k
+                {
+                    //disconnect
+                    dpp::voiceconn* voice = this->get_shard(0)->get_voice(message.msg.guild_id);
 
                     if(voice && voice->voiceclient && voice->is_ready())
-                        bot.get_shard(0)->disconnect_voice(message.msg.guild_id);
-                    else
-                        message.reply("I'm not in a voice channel");
-                }
-                if(message.msg.content.find("!play") != std::string::npos)
-                {
-                    const std::string youtubeUrl = message.msg.content.substr(6);
-
-                    const auto yt_dlpPath = resourcesManager.GetResourcesVariableContent("yt_dlp");
-
-                    constexpr std::string_view tempFileName = "temp_audio_file.m4a";
-
-                    if(std::filesystem::exists(tempFileName))
-                        std::filesystem::remove(tempFileName);
-
-                    const auto url = resourcesManager.ExecuteCommand(Logger::Format(yt_dlpPath, " -f bestaudio -o ", tempFileName, " \"", youtubeUrl, "\""));
-                    //const auto url = ExecuteCommand(Logger::Format(yt_dlpPath, " -f bestaudio --get-url \"", youtubeUrl, '\"'));
-
-                    dpp::voiceconn* v = bot.get_shard(0)->get_voice(message.msg.guild_id);
-                    if(!v || !v->voiceclient || !v->voiceclient->is_ready())
                     {
-                        LogWarning("There was an issue with getting the voice channel. Make sure I'm in a voice channel!");
-                        //return;
+                        this->get_shard(0)->disconnect_voice(message.msg.guild_id);
                     }
 
-                    const uint32_t bufferSizeToSend = atoi(resourcesManager.GetResourcesVariableContent("maxPacketSize").data());
-                    constexpr auto sampleFormat = AV_SAMPLE_FMT_S16;
-                    constexpr uint32_t sampleRate = 48000;
+                    message.reply("Goodbye!");
 
-                    uint64_t totalNumberOfReadings = 0;
+                    std::unique_lock lock{m_JoinMutex};
+                    m_JoinedCondition.wait_for(lock, std::chrono::milliseconds(500), [this] { return m_IsJoined == false; });
 
-                    Decoder decoder = Decoder(tempFileName);
-                    //Decoder decoder = Decoder(url);
-
-                    decoder.PrepareForDecodingAudio(sampleFormat, sampleRate);
-
-                    std::vector<uint8_t> buffer;
-                    buffer.reserve(bufferSizeToSend);
-
-                    while(decoder.AreThereFramesToProcess())
-                    {
-                        auto out = std::move(decoder.DecodeAudioFrame(sampleFormat, sampleRate));
-
-                        buffer.insert(buffer.begin() + buffer.size(), out.begin(), out.end());
-
-                        if(buffer.size() >= bufferSizeToSend)
-                        {
-                            LogInfo("Sending ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalNumberOfReadings);
-                            v->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
-                            buffer.clear();
-                        }
-
-                        totalNumberOfReadings++;
+                    exit(0);
                     }
-
-                    if(!buffer.empty())
-                    {
-                        LogInfo("Sending ", buffer.size(), " last bytes of data.");
-                        v->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
-
-                        totalNumberOfReadings++;
-                    }
-
-                    LogInfo("Sent all audio data with ", totalNumberOfReadings, " number of readings.");
                 }
             });
+    }
+    void AddLogger(const std::function<void(const dpp::log_t& log)>& logger) { this->on_log(logger); }
 
-        bot.set_websocket_protocol(dpp::ws_etf);
+private:
+    void PlayAudio(dpp::voiceconn* v, const std::string_view& url, uint32_t bufferSizeToSend, const bool& logSentPackets) const
+    {
+        constexpr auto sampleFormat = AV_SAMPLE_FMT_S16;
+        constexpr uint32_t sampleRate = 48000;
 
-        bot.start(dpp::st_wait);
+        Decoder decoder = Decoder(std::string(url));
+
+        LogInfo("Total duration of audio: ", decoder.GetDuration(), "s.");
+
+        decoder.PrepareForDecodingAudio(sampleFormat, sampleRate);
+
+        std::vector<uint8_t> buffer;
+        buffer.reserve(bufferSizeToSend);
+
+        uint64_t totalReads = 0;
+        uint64_t totalSentSize = 0;
+
+        while(decoder.AreThereFramesToProcess() && m_IsJoined)
+        {
+            auto out = std::move(decoder.DecodeAudioFrame(sampleFormat, sampleRate));
+
+            buffer.insert(buffer.end(), out.begin(), out.end());
+
+            if(buffer.size() >= bufferSizeToSend && m_IsJoined)
+            {
+                if(logSentPackets)
+                    LogInfo("Sending ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalReads, '.');
+
+                totalSentSize += buffer.size();
+
+                v->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
+                buffer.clear();
+            }
+
+            totalReads++;
+        }
+
+        if(!buffer.empty() && m_IsJoined)
+        {
+            if(logSentPackets)
+                LogInfo("Sending ", buffer.size(), " last bytes of data.");
+
+            totalSentSize += buffer.size();
+
+            v->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
+        }
+
+        LogInfo("Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, '.');
+    }
+
+private:
+    ResourcesManager m_ResourcesManager;
+
+    std::atomic_bool m_IsJoined;
+    std::condition_variable m_JoinedCondition;
+    std::mutex m_JoinMutex;
+
+    std::atomic_bool m_IsPlaying;
+    std::mutex m_PlaybackMutex;
+};
+
+int main(int argc, char** argv)
+{
+    try
+    {
+        ResourcesManager resourcesManager{ argv[0] };
+
+        const auto& botToken = resourcesManager.GetResourcesVariableContent("botToken");
+        const auto& prefix = resourcesManager.GetResourcesVariableContent("prefix");
+
+        LogInfo("Found token: ", botToken);
+
+        FuckingSlaveDiscordBot bot{ botToken, prefix, argv[0] };
+
+        bot.AddLogger(BotLogger);
+
+        bot.RegisterCommands();
+
+        bot.Run();
     }
     catch(const std::exception& e)
     {
@@ -282,21 +496,18 @@ void BotLogger(const dpp::log_t& log)
 {
     switch(log.severity)
     {
-        //case dpp::ll_trace:
     case dpp::ll_debug:
     case dpp::ll_info:
-        GE_LOG(DiscordBot, Info, log.message);
+        GE_LOG(DPP, Info, log.message);
         break;
     case dpp::ll_warning:
-        GE_LOG(DiscordBot, Warning, log.message);
+        GE_LOG(DPP, Warning, log.message);
         break;
     case dpp::ll_error:
     case dpp::ll_critical:
-        GE_LOG(DiscordBot, Error, log.message);
+        GE_LOG(DPP, Error, log.message);
         break;
     default:
-        //GE_THROW("An unknown logging category");
         break;
     }
 }
-#endif

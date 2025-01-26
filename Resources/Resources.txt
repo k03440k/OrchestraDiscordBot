@@ -1,4 +1,5 @@
-var botToken = "<BOT_TOKEN";
-var yt_dlp = "<PATH_TO_YT-DLP_EXE>";
+var botToken = "";
+var yt_dlp = "";
 var maxPacketSize = "3000000";//note: sent packet may be bigger than this value(bytes)
-var printSentPacketsSize = "true";// is not used currently
+var logSentPackets = "true";//print message like: Sending 3001632 bytes of data; totalNumberOfReadings: 781.?
+var prefix = "!";//command prefix
