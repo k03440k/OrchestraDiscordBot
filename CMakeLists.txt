@@ -9,9 +9,41 @@ set(PROJECT_NAME FuckingSlaveDiscordBot)
 
 project(${PROJECT_NAME})
 
-add_executable(${PROJECT_NAME}
-	Source/main.cpp
+set(PROJECT_HEADERS
+	"Source/FFmpeg/FFmpegUniquePtrManager.hpp"
+	"Source/FFmpeg/Decoder.hpp"
+
+	"Source/DiscordBot/Command.hpp"
+	"Source/DiscordBot/DiscordBot.hpp"
+	"Source/DiscordBot/FuckingSlaveDiscordBot.hpp"
+	"Source/DiscordBot/Player.hpp"
+
+	"Source/Workers/Worker.hpp"
+	"Source/Workers/WorkersManager.hpp"
+
+	"Source/Utils.hpp"
 	)
+set(PROJECT_SOURCES
+	"Source/FFmpeg/FFmpegUniquePtrManager.cpp"
+	"Source/FFmpeg/Decoder.cpp"
+	
+	"Source/DiscordBot/Command.cpp"
+	"Source/DiscordBot/DiscordBot.cpp"
+	"Source/DiscordBot/FuckingSlaveDiscordBot.cpp"
+	"Source/DiscordBot/Player.cpp"
+
+	"Source/main.cpp"
+	)
+set(PROJECT_CODE
+	${PROJECT_HEADERS}
+	${PROJECT_SOURCES}
+)
+
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES
+	${PROJECT_CODE}
+)
+
+add_executable(${PROJECT_NAME} ${PROJECT_CODE})
 
 #TODO: this
 if(DEFINED VCPKG_ROOT)
