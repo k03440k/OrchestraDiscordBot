@@ -34,5 +34,8 @@ namespace FSDB
         std::vector<Command> m_Commands;
 
         WorkersManager<void> m_WorkersManger;
+
+    private:
+        static ParsedCommand ParseCommand(const std::string_view& prefix, const std::string_view& message);
     };
 }

@@ -34,9 +34,21 @@ namespace FSDB
             }
         );
 
+        //TODO:
+        //support of commands like: "!play -speed .4" so to finish the Param system
+        //add support of playlists
+        //add support of streaming audio from raw url, like from google drive
+        //add support of skipping a certain time
+        //add gui?
+        //add support of looking for url depending on the name so that message contain only the name, for instance, "!play "Linkpark: Numb""
+        //make first decoding faster then next so to make play almost instantly
+        //make beauty and try optimize all possible things
+        //add possibility of making bass boost?
+        //rename to Orchestra and find an avatar
+
         //help
         this->AddCommand({ "help",
-            [this](const dpp::message_create_t& message)
+            [this](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
             {
                 std::stringstream outStream;
 
@@ -48,7 +60,7 @@ namespace FSDB
             });
         //play
         this->AddCommand({ "play",
-            [this, yt_dlpPath](const dpp::message_create_t& message)
+            [this, yt_dlpPath](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
             {
                 //join
                 if(!m_IsJoined)
@@ -59,46 +71,97 @@ namespace FSDB
                         //message.reply("Joining your voice channel!");
                 }
 
-                const std::string inUrl = message.msg.content.substr(6);
-
-                LogInfo("Received music url: ", inUrl);
-
-                const std::string rawUrl = GuelderResourcesManager::ResourcesManager::ExecuteCommand(GuelderConsoleLog::Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", inUrl, '\"'), 1)[0];
-                //const std::string title = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --print \"%(title)s\" \"", inUrl, '\"'))[0];
-
-                //const auto _urlCount = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist --print \"%(playlist_count)s\" \"", inUrl, '\"'), 1);
-                //const size_t urlCount = (!_urlCount.empty() && !_urlCount[0].empty() && _urlCount[0] != "NA" ? std::atoi(_urlCount[0].data()) : 0);
-
-                LogInfo("Received raw url to audio: ", rawUrl);
-
-                std::unique_lock joinLock{m_JoinMutex};
-                if(!m_JoinedCondition.wait_for(joinLock, std::chrono::seconds(10), [this] { return m_IsJoined == true; }))
-                    return;
-
-                dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
-                if(!v || !v->voiceclient || !v->voiceclient->is_ready())
+                if(!value.empty())
                 {
-                    message.reply("There was an issue joining the voice channel. Please make sure I am in a channel.");
-                    return;
-                }
+                   m_IsStopped = false;
+                    const auto& inUrl = value;
 
-                std::lock_guard lock{m_PlayMutex};
-                m_Player.AddAudioBack(rawUrl);
-                m_Player.PlayAudio(v);
-                m_Player.DeleteAudio();
-                /*for(size_t i = 1; i <= urlCount; ++i)
-                {
-                    const std::string currentUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url --playlist-items", i, " \"", inUrl, '\"'))[0];
-                    PlayAudio(v, rawUrl, bufferSize, logSentPackets);
-                }*/
+                   LogInfo("Received music url: ", inUrl);
 
-                LogError("exiting playing audio");
-            },
-            "I should join your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
+                   const auto received = GuelderResourcesManager::ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", inUrl, '\"'), 1);
+
+                   if(received.empty())
+                   {
+                       message.reply("Something went wrong...");
+                       return;
+                   }
+
+                   const std::string rawUrl = received[0];
+                   //const std::string title = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --print \"%(title)s\" \"", inUrl, '\"'))[0];
+
+                   //const auto _urlCount = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist --print \"%(playlist_count)s\" \"", inUrl, '\"'), 1);
+                   //const size_t urlCount = (!_urlCount.empty() && !_urlCount[0].empty() && _urlCount[0] != "NA" ? std::atoi(_urlCount[0].data()) : 0);
+
+                   LogInfo("Received raw url to audio: ", rawUrl);
+
+                   std::unique_lock joinLock{m_JoinMutex};
+                   if(!m_JoinedCondition.wait_for(joinLock, std::chrono::seconds(10), [this] { return m_IsJoined == true; }))
+                       return;
+
+                   dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
+                   if(!v || !v->voiceclient || !v->voiceclient->is_ready())
+                   {
+                       message.reply("There was an issue joining the voice channel. Please make sure I am in a channel.");
+                       return;
+                   }
+
+                   float speed = 1;
+                   {
+                       auto found = std::ranges::find_if(params, [](const Param& p) { return p.name == "speed"; });
+                       if(found != params.end())
+                           speed = StringToDouble(found->value);
+                   }
+                    size_t repeat = 1;
+                   {
+                       auto found = std::ranges::find_if(params, [](const Param& p) { return p.name == "repeat"; });
+                       if(found != params.end())
+                           repeat = StringToInt(found->value);
+                   }
+
+
+                   std::lock_guard lock{m_PlayMutex};
+                    if(!m_IsStopped)
+                    {
+                        for(size_t i = 0; i < repeat && !m_IsStopped; ++i)
+                        {
+                            m_Player.AddAudioBack(rawUrl, Decoder::DEFAULT_SAMPLE_RATE * speed);
+                           m_Player.PlayAudio(v);
+
+                           if(m_Player.GetAudioCount())
+                               m_Player.DeleteAudio();
+                        }
+                        if(m_Player.GetAudioCount())
+                               m_Player.DeleteAllAudio();
+                    }
+                    /*for(size_t i = 1; i <= urlCount; ++i)
+                    {
+                        const std::string currentUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url --playlist-items", i, " \"", inUrl, '\"'))[0];
+                        PlayAudio(v, rawUrl, bufferSize, logSentPackets);
+                    }*/
+                 }
+                 else
+                 {
+                    auto found = std::ranges::find_if(params, [](const Param& p) { return p.name == "speed"; });
+                    if(found != params.end())
+                    {
+                        float speed = StringToDouble(found->value);
+
+                        auto foundIndex = std::ranges::find_if(params, [](const Param& p) { return p.name == "index"; });
+
+                        size_t index = (foundIndex != params.end() ? StringToInt(foundIndex->value) : 0);
+
+                        if(index < params.size())
+                            m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed, index);
+                    }
+                 }
+
+                 LogError("exiting playing audio");
+             },
+             "I should join your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
             });
         //stop
         this->AddCommand({ "stop",
-            [this](const dpp::message_create_t& message)
+            [this](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
             {
                     dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
 
@@ -107,8 +170,10 @@ namespace FSDB
                         LogError("this->get_shard(0)->get_voice(message.msg.guild_id) == nullptr for some reason");
                         return;
                     }
-                    
+
                     m_Player.Stop();
+                    m_IsStopped = true;
+
                     v->voiceclient->pause_audio(m_Player.GetIsPaused());
                     v->voiceclient->stop_audio();
             },
@@ -116,7 +181,7 @@ namespace FSDB
             });
         //pause
         this->AddCommand({ "pause",
-            [this](const dpp::message_create_t& message)
+            [this](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
             {
                 if(m_IsJoined)
                 {
@@ -138,9 +203,26 @@ namespace FSDB
             },
             "Pauses the audio"
             });
+        //skip
+        this->AddCommand({ "skip",
+            [this](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+            {
+                dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
+
+                if(!v)
+                {
+                    LogError("this->get_shard(0)->get_voice(message.msg.guild_id) == nullptr for some reason");
+                    return;
+                }
+
+                v->voiceclient->stop_audio();
+                m_Player.Skip();
+            },
+            "Skips current track"
+            });
         //leave
         this->AddCommand({ "leave",
-            [this](const dpp::message_create_t& message)
+            [this](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
             {
                 dpp::voiceconn* voice = this->get_shard(0)->get_voice(message.msg.guild_id);
 
@@ -160,7 +242,7 @@ namespace FSDB
             });
         //terminate
         this->AddCommand({ "terminate",
-            [this](const dpp::message_create_t& message)
+            [this](const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
             {
                 if(message.msg.author.id == 465169363230523422)//k03440k
                 {

@@ -35,6 +35,8 @@ namespace FSDB
 
     private:
         Player m_Player;
+
+        std::atomic_bool m_IsStopped;
         std::mutex m_PlayMutex;
 
         std::atomic_bool m_IsJoined;

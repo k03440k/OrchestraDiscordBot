@@ -3,6 +3,7 @@
 #include <GuelderConsoleLog.hpp>
 #include <string_view>
 #include <memory>
+#include <chrono>
 
 using namespace GuelderConsoleLog;
 
@@ -28,5 +29,9 @@ namespace FSDB
     inline int StringToInt(const std::string_view& str)
     {
         return std::atoi(str.data());
+    }
+    inline double StringToDouble(const std::string_view& str)
+    {
+        return std::atof(str.data());
     }
 }

@@ -20,10 +20,22 @@ extern "C"
 
 namespace FSDB
 {
-	Player::Player(const uint32_t& sentPacketsSize, const bool& enableLazyDecoding, const bool& enableLogSentPackets)
+    Player::Player(const uint32_t& sentPacketsSize, const bool& enableLazyDecoding, const bool& enableLogSentPackets)
         : m_SentPacketSize(sentPacketsSize), m_EnableLazyDecoding(enableLazyDecoding), m_EnableLogSentPackets(enableLogSentPackets) {}
-	
-	void Player::PlayAudio(const dpp::voiceconn* voice, const size_t& index)
+
+    void Player::LazyDecodingCheck(const std::chrono::milliseconds& toWait, const std::chrono::milliseconds& sleepFor) const
+    {
+        const auto startedTime = std::chrono::steady_clock::now();
+
+        while(m_IsDecoding)
+        {
+            if(std::chrono::steady_clock::now() - startedTime >= toWait)
+                break;
+
+            std::this_thread::sleep_for(sleepFor);
+        }
+    }
+    void Player::PlayAudio(const dpp::voiceconn* voice, const size_t& index)
     {
         GE_ASSERT(!m_Decoders.empty(), "m_Decoders is empty.");
 
@@ -47,72 +59,53 @@ namespace FSDB
             std::unique_lock pauseLock{ m_PauseMutex };
             m_PauseCondition.wait(pauseLock, [this] { return m_IsPaused == false; });
 
-            if(m_IsDecoding)
+            if(!m_IsDecoding)
+                break;
+
+            auto out = decoder.DecodeAudioFrame();
+
+            buffer.insert(buffer.end(), out.begin(), out.end());
+
+            if(buffer.size() >= m_SentPacketSize)
             {
-                auto out = decoder.DecodeAudioFrame();
-
-                buffer.insert(buffer.end(), out.begin(), out.end());
-
-                if(buffer.size() >= m_SentPacketSize)
+                if(m_EnableLazyDecoding)
                 {
-                    if(m_EnableLazyDecoding)
-                    {
-                        //so-called "lazy loading"
-                        const auto startedTime = std::chrono::steady_clock::now();
-                        const auto playingTime = std::chrono::seconds(static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f));
+                    LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 });
 
-                        while(m_IsDecoding)
-                        {
-                            if(std::chrono::steady_clock::now() - startedTime >= playingTime)
-                                break;
-
-                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        }
-                        if(!m_IsDecoding)
-                            break;
-                    }
-
-                    voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
-
-                    totalSentSize += buffer.size();
-                    totalDuration += voice->voiceclient->get_secs_remaining();
-
-                    if(m_EnableLogSentPackets)
-                        LogInfo("Sent ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalReads, " for; sent data lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
-
-                    buffer.clear();
+                    if(!m_IsDecoding)
+                        break;
                 }
 
-                totalReads++;
+                voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
+
+                totalSentSize += buffer.size();
+                totalDuration += voice->voiceclient->get_secs_remaining();
+
+                if(m_EnableLogSentPackets)
+                    LogInfo("Sent ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalReads, " for; sent data lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
+
+                buffer.clear();
             }
-            else
-                break;
+
+            totalReads++;
         }
 
+        //leftovers
         if(m_IsDecoding && !buffer.empty())
         {
             if(m_EnableLazyDecoding)
+                LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 });
+
+            if(m_IsDecoding)
             {
-                //so-called "lazy loading"
-                const auto startedTime = std::chrono::steady_clock::now();
-                const auto playingTime = std::chrono::seconds(static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f));
+                voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
 
-                while(m_IsDecoding)
-                {
-                    if(std::chrono::steady_clock::now() - startedTime >= playingTime)
-                        break;
+                totalSentSize += buffer.size();
+                totalDuration += voice->voiceclient->get_secs_remaining();
 
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
+                if(m_EnableLogSentPackets)
+                    LogInfo("Sent ", buffer.size(), " last bytes of data that lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
             }
-
-            voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
-
-            totalSentSize += buffer.size();
-            totalDuration += voice->voiceclient->get_secs_remaining();
-
-            if(m_EnableLogSentPackets)
-                LogInfo("Sent ", buffer.size(), " last bytes of data that lasts for ", voice->voiceclient->get_secs_remaining(), " seconds.");
         }
 
         m_IsDecoding = false;
@@ -121,83 +114,96 @@ namespace FSDB
             LogInfo("Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", totalDuration, '.');
     }
 
-	void Player::AddAudio(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
+    void Player::AddAudio(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
     {
         m_Decoders.emplace(m_Decoders.begin() + pos, url, AV_SAMPLE_FMT_S16, sampleRate);
     }
-	void Player::AddAudioBack(const std::string_view& url, const uint32_t& sampleRate)
+    void Player::AddAudioBack(const std::string_view& url, const uint32_t& sampleRate)
     {
         m_Decoders.emplace_back(url, AV_SAMPLE_FMT_S16, sampleRate);
     }
 
-	void Player::DeleteAudio(const size_t& index)
+    void Player::DeleteAudio(const size_t& index)
     {
         m_Decoders.erase(m_Decoders.begin() + index);
     }
-	void Player::DeleteAllAudio()
+    void Player::DeleteAllAudio()
     {
         m_Decoders.clear();
     }
 
-	void Player::Stop()
+    void Player::Stop()
     {
+        Pause(true);
+
+        DeleteAllAudio();
+
         m_IsDecoding = false;
         m_IsPaused = false;
         m_PauseCondition.notify_all();
+
+        Pause(false);
     }
-	void Player::Pause(const bool& pause)
+    void Player::Pause(const bool& pause)
     {
         m_IsPaused = pause;
         m_PauseCondition.notify_all();
     }
 
-	void Player::Reserve(const size_t& capacity)
+    void Player::Skip()
+    {
+        m_IsDecoding = false;
+        m_IsPaused = false;
+        m_PauseCondition.notify_all();
+    }
+
+    void Player::Reserve(const size_t& capacity)
     {
         m_Decoders.reserve(capacity);
     }
 
     void Player::SetAudioSampleRate(const uint32_t& sampleRate, const size_t& index)
     {
-        m_Decoders[index].SetSampleRate(index);
+        m_Decoders[index].SetSampleRate(sampleRate);
     }
 
     void Player::SetEnableLogSentPackets(const bool& enable)
-	{
-	    m_EnableLogSentPackets = enable;
-	}
+    {
+        m_EnableLogSentPackets = enable;
+    }
     void Player::SetEnableLazyDecoding(const bool& enable)
-	{
-	    m_EnableLazyDecoding = enable;
-	}
+    {
+        m_EnableLazyDecoding = enable;
+    }
     void Player::SetSentPacketSize(const uint32_t& size)
-	{
-	    m_SentPacketSize = size;
-	}
+    {
+        m_SentPacketSize = size;
+    }
 
     bool Player::GetIsPaused() const noexcept
-	{
-	    return m_IsPaused;
-	}
+    {
+        return m_IsPaused;
+    }
     bool Player::GetIsDecoding() const noexcept
-	{
-	    return m_IsDecoding;
-	}
+    {
+        return m_IsDecoding;
+    }
 
     bool Player::GetEnableLogSentPackets() const noexcept
-	{
-	    return m_EnableLogSentPackets;
-	}
+    {
+        return m_EnableLogSentPackets;
+    }
     bool Player::GetEnableLazyDecoding() const noexcept
-	{
-	    return m_EnableLazyDecoding;
-	}
+    {
+        return m_EnableLazyDecoding;
+    }
     uint32_t Player::GetSentPacketSize() const noexcept
-	{
-	    return m_SentPacketSize;
-	}
-	
-	size_t Player::GetAudioCount() const noexcept
-	{
-	    return m_Decoders.size();
-	}
+    {
+        return m_SentPacketSize;
+    }
+
+    size_t Player::GetAudioCount() const noexcept
+    {
+        return m_Decoders.size();
+    }
 }
