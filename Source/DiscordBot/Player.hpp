@@ -10,7 +10,7 @@
 
 #include "../FFmpeg/Decoder.hpp"
 
-namespace FSDB
+namespace Orchestra
 {
     class Player
     {

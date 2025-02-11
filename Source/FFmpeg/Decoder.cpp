@@ -17,7 +17,7 @@ extern "C"
 
 #include "../Utils.hpp"
 
-namespace FSDB
+namespace Orchestra
 {
     Decoder::Decoder(const std::string_view& url, const AVSampleFormat& outSampleFormat, const uint32_t& outSampleRate)
         : m_FormatContext(avformat_alloc_context(), FFmpegUniquePtrManager::FreeFormatContext),

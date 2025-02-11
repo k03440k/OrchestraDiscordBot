@@ -1,6 +1,6 @@
 #include "FFmpegUniquePtrManager.hpp"
 
-namespace FSDB
+namespace Orchestra
 {
 	void FFmpegUniquePtrManager::FreeFormatContext(AVFormatContext* formatContext)
     {

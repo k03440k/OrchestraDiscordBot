@@ -1,6 +1,6 @@
 var botToken = "";
-var prefix = "!";//command prefix
-var yt_dlp = "";//path to yt-dlp.exe
-var maxPacketSize = "220000";//note: sent packet may be bigger than this value(bytes)
-var logSentPackets = "true";//print message like: Sending 3001632 bytes of data; totalNumberOfReadings: 781.?
-var lazyPacketSend = "true";//whether send audio packets lazily
+var commandPrefix = "!";
+var yt_dlp = "";//path to yt-dlp .exe
+var sentPacketsSize = "1500000";//note: sent packet may be bigger than this value(bytes)
+var enableLoggingSentPackets = "true";//print message like: Sending 3001632 bytes of data; totalNumberOfReadings: 781.?
+var enableLazyPacketsSending = "true";

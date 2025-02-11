@@ -3,11 +3,11 @@
 #include <GuelderConsoleLog.hpp>
 
 #include "Utils.hpp"
-#include "DiscordBot/FuckingSlaveDiscordBot.hpp"
+#include "DiscordBot/OrchestraDiscordBot.hpp"
 
 using namespace GuelderConsoleLog;
 using namespace GuelderResourcesManager;
-using namespace FSDB;
+using namespace Orchestra;
 
 void BotLogger(const dpp::log_t& log)
 {
@@ -33,18 +33,18 @@ int main(int argc, char** argv)
 {
     try
     {
-        ResourcesManager resourcesManager{ argv[0] };
+        const ResourcesManager resourcesManager{ argv[0] };
 
         const auto& botToken = resourcesManager.GetResourcesVariableContent("botToken");
-        const auto& prefix = resourcesManager.GetResourcesVariableContent("prefix");
+        const auto& prefix = resourcesManager.GetResourcesVariableContent("commandPrefix");
         const auto& yt_dlpPath = resourcesManager.GetResourcesVariableContent("yt_dlp");
-        const auto logSentPackets = StringToBool(resourcesManager.GetResourcesVariableContent("logSentPackets"));
-        const auto lazyPacketSend = StringToBool(resourcesManager.GetResourcesVariableContent("lazyPacketSend"));
-        const auto sentPacketsSize = StringToInt(resourcesManager.GetResourcesVariableContent("maxPacketSize"));
+        const auto sentPacketsSize = StringToInt(resourcesManager.GetResourcesVariableContent("sentPacketsSize"));
+        const auto logSentPackets = StringToBool(resourcesManager.GetResourcesVariableContent("enableLoggingSentPackets"));
+        const auto lazyPacketSend = StringToBool(resourcesManager.GetResourcesVariableContent("enableLazyPacketsSending"));
 
         LogInfo("Found token: ", botToken);
 
-        FuckingSlaveDiscordBot bot{ botToken, prefix, yt_dlpPath.data() };
+        OrchestraDiscordBot bot{ botToken, prefix, yt_dlpPath.data() };
 
         bot.SetEnableLogSentPackets(logSentPackets);
         bot.SetEnableLazyDecoding(lazyPacketSend);
@@ -55,6 +55,9 @@ int main(int argc, char** argv)
         bot.RegisterCommands();
 
         bot.Run();
+
+        //make like that
+        //auto p = DiscordBot::ParseCommand(bot.m_Commands, "!", "!play -speed 23 odhf gjgi ghgu");
     }
     catch(const std::exception& e)
     {

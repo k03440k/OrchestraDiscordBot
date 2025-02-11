@@ -18,7 +18,7 @@ extern "C"
 #include "../Utils.hpp"
 #include "../FFmpeg/Decoder.hpp"
 
-namespace FSDB
+namespace Orchestra
 {
     Player::Player(const uint32_t& sentPacketsSize, const bool& enableLazyDecoding, const bool& enableLogSentPackets)
         : m_SentPacketSize(sentPacketsSize), m_EnableLazyDecoding(enableLazyDecoding), m_EnableLogSentPackets(enableLogSentPackets) {}
@@ -41,7 +41,7 @@ namespace FSDB
 
         const Decoder& decoder = m_Decoders[index];
 
-        LogInfo("Total duration of audio: ", decoder.GetDuration(), "s.");
+        GE_LOG(Orchestra, Info, "Total duration of audio: ", decoder.GetDuration(), "s.");
 
         std::vector<uint8_t> buffer;
         buffer.reserve(m_SentPacketSize);
@@ -50,7 +50,7 @@ namespace FSDB
         uint64_t totalSentSize = 0;
         float totalDuration = 0;
 
-        LogError(std::this_thread::get_id());
+        GE_LOG(Orchestra, Info, "PlayAduio is executing on thread with index ", std::this_thread::get_id(), '.');
 
         m_IsDecoding = true;
 
@@ -82,7 +82,7 @@ namespace FSDB
                 totalDuration += voice->voiceclient->get_secs_remaining();
 
                 if(m_EnableLogSentPackets)
-                    LogInfo("Sent ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalReads, " for; sent data lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
+                    GE_LOG(Orchestra, Info, "Sent ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalReads, " for; sent data lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
 
                 buffer.clear();
             }
@@ -104,14 +104,14 @@ namespace FSDB
                 totalDuration += voice->voiceclient->get_secs_remaining();
 
                 if(m_EnableLogSentPackets)
-                    LogInfo("Sent ", buffer.size(), " last bytes of data that lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
+                    GE_LOG(Orchestra, Info, "Sent ", buffer.size(), " last bytes of data that lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
             }
         }
 
         m_IsDecoding = false;
 
         if(m_EnableLogSentPackets)
-            LogInfo("Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", totalDuration, '.');
+            GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", totalDuration, '.');
     }
 
     void Player::AddAudio(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
@@ -201,7 +201,6 @@ namespace FSDB
     {
         return m_SentPacketSize;
     }
-
     size_t Player::GetAudioCount() const noexcept
     {
         return m_Decoders.size();

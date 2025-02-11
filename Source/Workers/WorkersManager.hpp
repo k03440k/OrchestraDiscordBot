@@ -1,16 +1,14 @@
 #pragma once
 
 #include <functional>
-#include <future>
 #include <vector>
 
 #include <GuelderConsoleLog.hpp>
 
 #include "../Utils.hpp"
-
 #include "Worker.hpp"
 
-namespace FSDB
+namespace Orchestra
 {
     template<typename T>
     class WorkersManager
@@ -36,44 +34,7 @@ namespace FSDB
             if(found != m_Workers.end())
                 found->Work();
         }
-
-        //returns workers id
-        size_t AddWorker(const std::function<T()>& func, const bool& remove = false)
-        {
-            std::lock_guard lock{ m_WorkersMutex };
-
-            m_Workers.emplace_back(
-                m_WorkersCurrentIndex,
-                [this, _func = func, index = m_WorkersCurrentIndex.load(), remove]
-                {
-                    if constexpr(std::is_same_v<T, void>)
-                    {
-                        _func();
-
-                        if(remove)
-                        {
-                            std::thread removeThread([=] { RemoveWorker(index); });
-                            removeThread.detach();
-                        }
-                    }
-                    else
-                    {
-                        auto result = _func();
-
-                        if(remove)
-                        {
-                            std::thread removeThread([=] { RemoveWorker(index); });
-                            removeThread.detach();
-                        }
-
-                        return result;
-                    }
-                }
-            );
-            ++m_WorkersCurrentIndex;
-
-            return m_WorkersCurrentIndex - 1;
-        }
+        
         //returns workers id
         size_t AddWorker(std::function<T()>&& func, const bool& remove = false)
         {
@@ -83,6 +44,7 @@ namespace FSDB
                 m_WorkersCurrentIndex,
                 [this, _func = std::move(func), index = m_WorkersCurrentIndex.load(), remove]
                 {
+                    GE_LOG(Orchestra, Info, "Adding worker with index ", index, '.');
                     if constexpr(std::is_same_v<T, void>)
                     {
                         _func();
@@ -92,7 +54,7 @@ namespace FSDB
                             std::thread removeThread([=] { RemoveWorker(index); });
                             removeThread.detach();
                         }
-                        LogInfo("ending ", index);
+                        GE_LOG(Orchestra, Info, "Deleting worker with index ", index, '.');
                     }
                     else
                     {
@@ -104,7 +66,7 @@ namespace FSDB
                             removeThread.detach();
                         }
 
-                        LogInfo("ending ", index);
+                        GE_LOG(Orchestra, Info, "Deleting worker with index ", index, '.');
 
                         return result;
                     }

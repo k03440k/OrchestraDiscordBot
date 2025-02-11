@@ -1,11 +1,11 @@
 #Dependincies: download and install via vcpkg dpp:64x-windows, ffmpeg:64x-windows
-#cmake --build . --config Release --target FuckingSlaveDiscordBot
-#cmake --build . --config Debug --target FuckingSlaveDiscordBot
+#cmake --build . --config Release --target OrchestraDiscordBot
+#cmake --build . --config Debug --target OrchestraDiscordBot
 cmake_minimum_required(VERSION 3.26.4)
 
 set(CMAKE_CXX_STANDARD 20)
 
-set(PROJECT_NAME FuckingSlaveDiscordBot)
+set(PROJECT_NAME OrchestraDiscordBot)
 
 project(${PROJECT_NAME})
 
@@ -15,7 +15,7 @@ set(PROJECT_HEADERS
 
 	"Source/DiscordBot/Command.hpp"
 	"Source/DiscordBot/DiscordBot.hpp"
-	"Source/DiscordBot/FuckingSlaveDiscordBot.hpp"
+	"Source/DiscordBot/OrchestraDiscordBot.hpp"
 	"Source/DiscordBot/Player.hpp"
 
 	"Source/Workers/Worker.hpp"
@@ -29,7 +29,7 @@ set(PROJECT_SOURCES
 	
 	"Source/DiscordBot/Command.cpp"
 	"Source/DiscordBot/DiscordBot.cpp"
-	"Source/DiscordBot/FuckingSlaveDiscordBot.cpp"
+	"Source/DiscordBot/OrchestraDiscordBot.cpp"
 	"Source/DiscordBot/Player.cpp"
 
 	"Source/main.cpp"

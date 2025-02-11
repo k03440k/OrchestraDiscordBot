@@ -9,7 +9,7 @@ extern "C"
 #include <libavutil/frame.h>
 #include <libswresample/swresample.h>
 }
-namespace FSDB
+namespace Orchestra
 {
 	class FFmpegUniquePtrManager
 	{

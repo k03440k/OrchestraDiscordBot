@@ -3,14 +3,14 @@
 #include <GuelderConsoleLog.hpp>
 #include <string_view>
 #include <memory>
-#include <chrono>
 
-using namespace GuelderConsoleLog;
-
-namespace FSDB
+namespace Orchestra
 {
+    GE_DECLARE_LOG_CATEGORY_EXTERN(Orchestra, All, true, false, true);
+    inline GE_DEFINE_LOG_CATEGORY(Orchestra);
+
     template<typename T, typename D>
-    inline std::unique_ptr<T, D> CloneUniquePtr(const std::unique_ptr<T, D>& other)
+    std::unique_ptr<T, D> CloneUniquePtr(const std::unique_ptr<T, D>& other)
     {
         if(other)
             return std::unique_ptr<T, D>(new T(*other), other.get_deleter());
@@ -19,19 +19,19 @@ namespace FSDB
     }
     inline bool StringToBool(const std::string_view& str)
     {
-        if(str == "true")
+        if(str == "true" || str == "1")
             return true;
-        else if(str == "false")
+        else if(str == "false" || str == "0")
             return false;
         else
             GE_THROW("Failed to convert string to bool");
     }
     inline int StringToInt(const std::string_view& str)
     {
-        return std::atoi(str.data());
+        return std::stoi(str.data());
     }
-    inline double StringToDouble(const std::string_view& str)
+    inline float StringToFloat(const std::string_view& str)
     {
-        return std::atof(str.data());
+        return std::stof(str.data());
     }
 }

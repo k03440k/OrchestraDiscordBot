@@ -1,6 +1,16 @@
 #include "DiscordBot.hpp"
 
-namespace FSDB
+#include <string_view>
+#include <vector>
+#include <functional>
+
+#include <dpp/dpp.h>
+
+#include "Command.hpp"
+#include "../Workers/WorkersManager.hpp"
+#include "../Utils.hpp"
+
+namespace Orchestra
 {
     GE_DEFINE_LOG_CATEGORY(DPP);
 
@@ -22,36 +32,32 @@ namespace FSDB
         on_message_create(
             [&](const dpp::message_create_t& message)
             {
-                if(message.msg.author.id != me.id)
+                try
                 {
-                    const auto& content = message.msg.content;
-
-                    ParsedCommand parsedCommand = ParseCommand(m_Prefix, content);
-
-                    const auto found = std::ranges::find_if(m_Commands, [&parsedCommand](const Command& command) { return command.name == parsedCommand.name; });
-
-                    if(found != m_Commands.end())
+                    if(message.msg.author.id != me.id)
                     {
-                        LogInfo("User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
+                        const auto& content = message.msg.content;
 
-                        const size_t id = m_WorkersManger.AddWorker([&command = *found, message, parsedCommand] { command(message, parsedCommand.params, parsedCommand.value); }, true);
+                        if(content[0] != m_Prefix[0])
+                            return;
 
-                        m_WorkersManger.Work(id);
-                    }
-                    /*for(auto& command : m_Commands)
-                    {
-                        const size_t found = content.find(command.name);
-                        const size_t prefixSize = m_Prefix.size();
+                        ParsedCommand parsedCommand = ParseCommand(m_Commands, m_Prefix, content);
 
-                        if(found != std::string::npos && found > 0 && found >= prefixSize && content.substr(found - prefixSize, prefixSize) == m_Prefix)
+                        const auto found = std::ranges::find_if(m_Commands, [&parsedCommand](const Command& command) { return command.name == parsedCommand.name; });
+
+                        if(found != m_Commands.end())
                         {
-                            LogInfo("User with snowflake: ", message.msg.author.id, " has just called \"", command.name, "\" command.");
-
-                            const size_t id = m_WorkersManger.AddWorker([command, message] { command(message); }, true);
+                            GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
+                            auto f = [found, message, parsedCommand] { (*found)(message, parsedCommand.params, parsedCommand.value); };
+                            const size_t id = m_WorkersManger.AddWorker(std::move(f), true);
 
                             m_WorkersManger.Work(id);
                         }
-                    }*/
+                    }
+                }
+                catch(const std::exception& e)
+                {
+                    message.reply(e.what());
                 }
             }
         );
@@ -66,25 +72,56 @@ namespace FSDB
     {
         this->on_log(logger);
     }
-    ParsedCommand DiscordBot::ParseCommand(const std::string_view& prefix, const std::string_view& message)
+    ParsedCommand DiscordBot::ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& prefix, const std::string_view& message)
     {
-        using iterator = decltype(prefix.begin());
+        using Iterator = decltype(prefix.begin());
 
-        const size_t foundPrefix = message.find(prefix);
+        const Iterator foundPrefix = std::ranges::search(message, prefix).begin();
 
-        GE_ASSERT(foundPrefix != std::string::npos, "Failed to find prefix.");
+        //whether we found prefix and if it is in the FIRST PLACE of message
+        GE_ASSERT(foundPrefix == message.begin(), "Failed to find prefix.");
 
-        size_t index = 0;
-
-        const iterator whiteSpaceAfterCommandName = std::find(message.begin() + foundPrefix + 1, message.end(), ' ');
+        //!play -speed .5 -repeat 10 URLURLURL
+        //     ^
+        const Iterator whiteSpaceAfterCommandName = std::find(foundPrefix, message.end(), ' ');
 
         //GE_ASSERT(whiteSpaceAfterCommandName != message.end(), "Failed to distinguish a command name.");
 
-        std::string name{ message.begin() + foundPrefix + 1, whiteSpaceAfterCommandName };
+        std::string name{ foundPrefix + 1, whiteSpaceAfterCommandName };
 
-        const size_t _nexCommandFound = message.find(prefix, foundPrefix + 1);
-        const size_t nextCommandOffset = (_nexCommandFound == std::string::npos ? 0 : _nexCommandFound - foundPrefix);
-        const iterator whiteSpaceBeforeValue = std::find(std::find_if(message.rbegin() + nextCommandOffset, message.rend(), [](const char& ch) { return ch != ' '; }), std::reverse_iterator(whiteSpaceAfterCommandName), ' ').base();
+        const auto foundCommand = std::ranges::find_if(supportedCommands, [&name](const Command& command) { return command.name == name; });
+
+        GE_ASSERT(foundCommand != supportedCommands.end(), "Failed to find command with name: \"", name, "\".");
+
+        //!play -speed .5 -repeat 10 URLURLURL
+        //                          ^
+        const auto lastNonWhiteSpace = std::find_if(message.rbegin(), message.rend(), [](const char& ch) { return ch != ' '; });
+        Iterator whiteSpaceBeforeCommandValue = message.end();
+        if(whiteSpaceAfterCommandName != message.end())
+            whiteSpaceBeforeCommandValue = std::find(lastNonWhiteSpace + 1, std::reverse_iterator(whiteSpaceAfterCommandName), ' ').base() - 1;
+
+        //check if commandValue is a value of param, for instance, !play -speed .5 -repeat 10
+        {
+            if(whiteSpaceBeforeCommandValue != message.end())
+            {
+                size_t letterCount = 0;
+                for(Iterator i = whiteSpaceBeforeCommandValue; i != message.begin(); --i)
+                {
+                    if(*i != ' ' && *i != '-')
+                        letterCount++;
+                    //this is param value
+                    else if(letterCount && *i == ' ')
+                        break;
+                    //this is param
+                    else if(letterCount && *i == '-')
+                    {
+                        whiteSpaceBeforeCommandValue = message.end();
+                        break;
+                    }
+                }
+            }
+        }
+
         //const iterator whiteSpaceBeforeValue = std::find(message.rend().base() + foundPrefix, std::find_if(message.rend().base(), message.rbegin().base() + nextCommandOffset, [](const char& ch) { return ch != ' '; }), ' ');
 
         std::vector<Param> params;
@@ -93,41 +130,48 @@ namespace FSDB
 
         if(whiteSpaceAfterCommandName != message.end())
         {
-            const size_t paramsCount = std::count(whiteSpaceAfterCommandName, whiteSpaceBeforeValue, '-');
-
-            params.reserve(paramsCount);
-
-            if(paramsCount)
+            if(!supportedCommands.empty())
             {
-                iterator current = std::find(message.begin() + index, message.end(), '-');
+                const size_t paramsCount = std::count(whiteSpaceAfterCommandName, whiteSpaceBeforeCommandValue, '-');
+
+                params.reserve(paramsCount);
+
+                Iterator current = std::find(whiteSpaceAfterCommandName, whiteSpaceBeforeCommandValue, '-');
 
                 for(size_t i = 0; i < paramsCount; ++i)
                 {
-                    iterator whiteSpaceAfterName = std::find(current, message.end(), ' ');
+                    Iterator whiteSpaceAfterName = std::find(current, whiteSpaceBeforeCommandValue, ' ');
 
-                    iterator value = std::find_if(whiteSpaceAfterName + 1, message.end(), [](const char& ch) { return ch != ' '; });
+                    Iterator paramValue = std::find_if(whiteSpaceAfterName + 1, whiteSpaceBeforeCommandValue, [](const char& ch) { return ch != ' '; });
 
-                    GE_ASSERT(value != whiteSpaceBeforeValue, "Failed to extract the param value, probably the value to the param was misspelled.");
+                    //GE_ASSERT(paramValue != commandValue, "Failed to extract the param value, probably the value to the param was misspelled.");
 
-                    iterator whiteSpaceAfterValue = std::find(value, message.end(), ' ');
+                    Iterator whiteSpaceAfterValue = std::find(paramValue, whiteSpaceBeforeCommandValue, ' ');
 
-                    params.emplace_back(std::string(current + 1, whiteSpaceAfterName), std::string(value, whiteSpaceAfterValue));
+                    std::string _paramName{ current + 1, whiteSpaceAfterName };
+                    const auto foundParam = std::ranges::find_if(foundCommand->paramsProperties, [&_paramName](const ParamProperties& properties) { return properties.name == _paramName; });
+                    GE_ASSERT(foundParam != foundCommand->paramsProperties.end(), "Failed to distinguish a param with name \"", _paramName, "\".");
 
-                    current = std::find(whiteSpaceAfterValue + 1, message.end(), '-');
+                    params.emplace_back(ParamProperties{ std::move(_paramName), foundParam->type }, std::string{ paramValue, whiteSpaceAfterValue });
+
+                    if(whiteSpaceAfterValue != whiteSpaceBeforeCommandValue)
+                        current = std::find(whiteSpaceAfterValue + 1, whiteSpaceBeforeCommandValue, '-');
+                    else
+                        break;
                 }
 
                 std::sort(params.begin(), params.end());
-                params.erase(std::unique(params.begin(), params.end()), params.end());
-
+                params.erase(std::ranges::unique(params, [](const Param& left, const Param& right) { return left.properties.name == right.properties.name; }).begin(), params.end());
             }
             else
             {
-                iterator wrongValue = std::find_if(whiteSpaceAfterCommandName, whiteSpaceBeforeValue, [](const char& ch) { return ch != ' '; });
+                const Iterator wrongValue = std::find_if(whiteSpaceAfterCommandName, whiteSpaceBeforeCommandValue, [](const char& ch) { return ch != ' '; });
 
-                GE_ASSERT(wrongValue == whiteSpaceBeforeValue, "There is an extra value between command name and its value.");
+                GE_ASSERT(wrongValue == whiteSpaceBeforeCommandValue, "There is an extra character between command name and its value.");
             }
 
-            value = { whiteSpaceBeforeValue, std::find(whiteSpaceBeforeValue, message.end(), ' ') };
+            if(whiteSpaceBeforeCommandValue != message.end())
+                value = { whiteSpaceBeforeCommandValue + 1, std::find(whiteSpaceBeforeCommandValue + 1, message.end(), ' ') };
         }
 
         return { std::move(name), std::move(params), std::move(value) };

@@ -10,8 +10,7 @@
 #include "../Workers/WorkersManager.hpp"
 #include "../Utils.hpp"
 
-
-namespace FSDB
+namespace Orchestra
 {
     GE_DECLARE_LOG_CATEGORY_EXTERN(DPP, All, true, false, true);
 
@@ -36,6 +35,6 @@ namespace FSDB
         WorkersManager<void> m_WorkersManger;
 
     private:
-        static ParsedCommand ParseCommand(const std::string_view& prefix, const std::string_view& message);
+        static ParsedCommand ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& prefix, const std::string_view& message);
     };
 }

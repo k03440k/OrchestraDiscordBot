@@ -3,7 +3,7 @@
 #include <functional>
 #include <future>
 
-namespace FSDB
+namespace Orchestra
 {
     template<class T>
     struct Worker

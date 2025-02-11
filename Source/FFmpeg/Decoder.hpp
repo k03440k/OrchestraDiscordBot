@@ -16,7 +16,7 @@ extern "C"
 
 #include "FFmpegUniquePtrManager.hpp"
 
-namespace FSDB
+namespace Orchestra
 {
     class Decoder
     {
