@@ -3,6 +3,7 @@
 #include <GuelderConsoleLog.hpp>
 #include <string_view>
 #include <memory>
+#include <regex>
 
 namespace Orchestra
 {
@@ -33,5 +34,19 @@ namespace Orchestra
     inline float StringToFloat(const std::string_view& str)
     {
         return std::stof(str.data());
+    }
+    inline wchar_t CharToWChar(const char& ch)
+    {
+        wchar_t wch;
+        std::mbtowc(&wch, &ch, 1);
+        return wch;
+    }
+    inline bool IsValidURL(const std::string& url)
+    {
+        // Regular expression to match basic URL structure
+        const std::regex urlPattern(R"((https?|ftp)://([A-Za-z0-9.-]+)(:[0-9]+)?(/.*)?)");
+
+        // Return true if the URL matches the pattern, false otherwise
+        return std::regex_match(url, urlPattern);
     }
 }

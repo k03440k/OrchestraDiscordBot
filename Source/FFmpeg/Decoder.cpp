@@ -145,6 +145,19 @@ namespace Orchestra
     void Decoder::SetSampleRate(const uint32_t& sampleRate)
     {
         m_SampleRate = sampleRate;
+
+        m_SwrContext.reset();
+
+        m_SwrContext = FFmpegUniquePtrManager::UniquePtrSwrContext(swr_alloc(), FFmpegUniquePtrManager::FreeSwrContext);
+
+        av_opt_set_chlayout(m_SwrContext.get(), "in_chlayout", &m_CodecContext->ch_layout, 0);
+        av_opt_set_chlayout(m_SwrContext.get(), "out_chlayout", &m_CodecContext->ch_layout, 0);
+        av_opt_set_int(m_SwrContext.get(), "in_sample_rate", m_CodecContext->sample_rate, 0);
+        av_opt_set_int(m_SwrContext.get(), "out_sample_rate", m_SampleRate, 0);
+        av_opt_set_sample_fmt(m_SwrContext.get(), "in_sample_fmt", m_CodecContext->sample_fmt, 0);
+        av_opt_set_sample_fmt(m_SwrContext.get(), "out_sample_fmt", m_SampleFormat, 0);
+
+        GE_ASSERT(swr_init(m_SwrContext.get()) >= 0, "Failed to initialize swrContext");
     }
 
     bool Decoder::AreThereFramesToProcess() const

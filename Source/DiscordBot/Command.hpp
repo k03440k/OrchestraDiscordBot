@@ -100,6 +100,14 @@ namespace Orchestra
 
         return found->GetValue<Return>();
     }
+    template<typename T>
+    void GetParamValue(const std::vector<Param>& params, const std::string_view& name, T& value)
+    {
+        auto found = GetParam(params, name);
+
+        if(found != params.end())
+            value = found->GetValue<T>();
+    }
     struct Command
     {
     public:

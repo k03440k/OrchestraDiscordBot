@@ -55,9 +55,6 @@ int main(int argc, char** argv)
         bot.RegisterCommands();
 
         bot.Run();
-
-        //make like that
-        //auto p = DiscordBot::ParseCommand(bot.m_Commands, "!", "!play -speed 23 odhf gjgi ghgu");
     }
     catch(const std::exception& e)
     {

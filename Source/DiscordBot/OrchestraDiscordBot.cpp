@@ -17,6 +17,7 @@
 namespace Orchestra
 {
     using namespace GuelderConsoleLog;
+    using namespace GuelderResourcesManager;
 
     OrchestraDiscordBot::OrchestraDiscordBot(const std::string_view& token, const std::string_view& prefix, const std::string& yt_dlpPath, uint32_t intents)
         : DiscordBot(token, prefix, intents), m_Player(200000, true, false), m_yt_dlpPath(yt_dlpPath)
@@ -50,7 +51,7 @@ namespace Orchestra
         //add support of streaming audio from raw url, like from google drive
         //add support of skipping a certain time
         //add gui?
-        //add support of looking for url depending on the name so that message contain only the name, for instance, "!play "Linkpark: Numb"" - PARTIALLY
+        //add support of looking for url depending on the name so that message contain only the name, for instance, "!play "Linkpark: Numb"" - DONE
         //make first decoding faster then next so to make play almost instantly
         //make beauty and try optimize all possible things
         //add possibility of making bass boost?
@@ -68,8 +69,9 @@ namespace Orchestra
             {
                 ParamProperties{"speed", Type::Float},
                 ParamProperties{"repeat", Type::Int},
-                ParamProperties{"index", Type::Int},
-                ParamProperties{"search", Type::Bool}//temp
+                //ParamProperties{"index", Type::Int},
+                ParamProperties{"search", Type::Bool},//temp
+                ParamProperties{"noinfo", Type::Bool}
             },
  "I should join your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
             });
@@ -119,52 +121,47 @@ namespace Orchestra
         {
             //join
             if(!m_IsJoined)
-            {
                 if(!dpp::find_guild(message.msg.guild_id)->connect_member_voice(message.msg.author.id))
                     message.reply("You don't seem to be in a voice channel!");
-                //else
-                    //message.reply("Joining your voice channel!");
-            }
 
             m_IsStopped = false;
-            const auto& inUrl = value;
 
-            GE_LOG(Orchestra, Info, "Received music url: ", inUrl);
+            GE_LOG(Orchestra, Info, L"Received music value: ", StringToWString(value));
 
-            std::vector<std::string> received;
-            
+            std::vector<std::string> receivedUrls;
+
+            bool usingSearch = !IsValidURL(value.data());
+            if(!usingSearch)
+                GetParamValue(params, "search", usingSearch);
+
             //need rework
             {
                 std::string call;
-                auto receivedParam = GetParam(params, "search");
 
-                if(receivedParam != params.end() && receivedParam->GetValue<bool>())
+                if(usingSearch)
                 {
-                    call = Logger::Format(m_yt_dlpPath, " \"ytsearch:", inUrl, "\" --flat-playlist -f bestaudio --get-url");
-                    received = GuelderResourcesManager::ResourcesManager::ExecuteCommand(call, 1);
+                    std::wstring wValue = StringToWString(value);
+                    std::wstring wYt_dlpPath = StringToWString(m_yt_dlpPath);
 
-                    GE_ASSERT(!received.empty(), "Failed to find track on youtube: ", inUrl, '.');
+                    //std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"ytsearch:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
+                    std::wstring wCall = Logger::Format(std::move(wYt_dlpPath), L" \"ytsearch:", std::move(wValue), L"\" -f bestaudio --get-url");
 
-                    call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", received[0], '\"');
+                    receivedUrls = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1);
+
+                    GE_ASSERT(!receivedUrls.empty(), "Failed to find track on youtube: ", value, '.');
+
+                    //call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", receivedUrls[0], '\"');
                 }
                 else
-                    call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", inUrl, '\"');
-
-                received = GuelderResourcesManager::ResourcesManager::ExecuteCommand(call, 1);
+                {
+                    call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", value, '\"');
+                    receivedUrls = ResourcesManager::ExecuteCommand(call, 1);
+                }
             }
 
-            GE_ASSERT(!received.empty(), "Failed to get raw url from ", inUrl, '.');
-            /*if(received.empty())
-            {
-                message.reply("Something went wrong...");
-                return;
-            }*/
+            GE_ASSERT(!receivedUrls.empty(), "Failed to get raw url from ", value, '.');
 
-            const std::string rawUrl = received[0];
-            //const std::string title = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --print \"%(title)s\" \"", inUrl, '\"'))[0];
-
-            //const auto _urlCount = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist --print \"%(playlist_count)s\" \"", inUrl, '\"'), 1);
-            //const size_t urlCount = (!_urlCount.empty() && !_urlCount[0].empty() && _urlCount[0] != "NA" ? std::atoi(_urlCount[0].data()) : 0);
+            const std::string rawUrl = receivedUrls[0];
 
             GE_LOG(Orchestra, Info, "Received raw url to audio: ", rawUrl);
 
@@ -180,58 +177,100 @@ namespace Orchestra
             }
 
             float speed = 1;
-            {
-                const auto found = GetParam(params, "speed");
-                if(found != params.end())
-                    speed = found->GetValue<float>();
-            }
+            GetParamValue(params, "speed", speed);
             int repeat = 1;
-            {
-                auto found = GetParam(params, "repeat");
-                if(found != params.end())
-                    repeat = found->GetValue<int>();
-            }
-
+            GetParamValue(params, "repeat", repeat);
+            bool noInfo = false;
+            GetParamValue(params, "noinfo", noInfo);
 
             std::lock_guard lock{ m_PlayMutex };
+
+            //TODO: rework: it is too slow
+            if(!noInfo)
+            {
+                std::thread discordInfo(
+                   [&, this]
+                   {
+                       std::string ytUrl;
+                       ytUrl.reserve(44);
+                       if(usingSearch)
+                       {
+                           std::wstring wValue = StringToWString(value);
+                           std::wstring wYt_dlpPath = StringToWString(m_yt_dlpPath);
+
+                           //to get yt url
+                           std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"ytsearch:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
+
+                           ytUrl = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1)[0];
+
+                           if(!m_Player.GetIsDecoding())
+                               return;
+                       }
+                       else
+                           ytUrl = value;
+
+                       std::wstring title = ResourcesManager::ExecuteCommand<char, wchar_t>(Logger::Format(m_yt_dlpPath, " --print \"%(title)s\" \"", ytUrl, '\"'))[0];
+
+                       if(!m_Player.GetIsDecoding())
+                           return;
+
+                       std::string duration = ResourcesManager::ExecuteCommand(Logger::Format(m_yt_dlpPath, " --get-duration ", ytUrl))[0];
+
+                       if(!m_Player.GetIsDecoding())
+                           return;
+
+                       auto m = Logger::Format(L"**", title, L"** is going to be played for ", StringToWString(duration));
+
+                       if(usingSearch)
+                           m += Logger::Format(L"\nURL: ", StringToWString(ytUrl));
+
+                       message.reply(WStringToString(m));
+                   });
+                discordInfo.detach();
+            }
+
             if(!m_IsStopped)
             {
                 for(size_t i = 0; i < repeat && !m_IsStopped; ++i)
                 {
-                    m_Player.AddAudioBack(rawUrl, Decoder::DEFAULT_SAMPLE_RATE * speed);
-                    m_Player.PlayAudio(v);
+                    m_Player.AddDecoderBack(rawUrl, Decoder::DEFAULT_SAMPLE_RATE * speed);
+                    m_Player.DecodeAudio(v);
 
-                    if(m_Player.GetAudioCount())
+                    if(m_Player.GetDecodersCount())
                         m_Player.DeleteAudio();
                 }
-                if(m_Player.GetAudioCount())
+                if(m_Player.GetDecodersCount())
                     m_Player.DeleteAllAudio();
             }
+            //const std::wstring title = StringToWString(ResourcesManager::ExecuteCommand(Logger::Format(m_yt_dlpPath, " --print \"%(title)s\" \"", rawUrl, '\"'))[0]);
+            //message.reply(WStringToString(Logger::Format(L"The url is going to be played: ", title)));
+            //const auto _urlCount = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist --print \"%(playlist_count)s\" \"", inUrl, '\"'), 1);
+            //const size_t urlCount = (!_urlCount.empty() && !_urlCount[0].empty() && _urlCount[0] != "NA" ? std::atoi(_urlCount[0].data()) : 0);
             /*for(size_t i = 1; i <= urlCount; ++i)
             {
                 const std::string currentUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url --playlist-items", i, " \"", inUrl, '\"'))[0];
-                PlayAudio(v, rawUrl, bufferSize, logSentPackets);
+                DecodeAudio(v, rawUrl, bufferSize, logSentPackets);
             }*/
         }
-        /*else
+        else
         {
-            if(m_Player.GetAudioCount())
+            if(m_Player.GetDecodersCount())
             {
-                const auto found = GetParam(params, "speed");
-                if(found != params.end())
+                float speed = 0.f;
+                GetParamValue(params, "speed", speed);
+
+                if(speed > 0.f)
                 {
-                    float speed = found->GetValue<float>();
-
                     int index = 0;
-                    auto foundIndex = GetParam(params, "index");
-                    if(foundIndex != params.end())
-                        index = foundIndex->GetValue<int>();
+                    //GetParamValue(params, "index", index);
 
-                    if(index < params.size())
-                        m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed, index);
+                    //if(index < 0)
+                    //    index = 0;
+
+                    m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed, index);
                 }
             }
-        }*/
+        }
     }
     void OrchestraDiscordBot::CommandStop(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {

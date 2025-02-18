@@ -35,7 +35,7 @@ namespace Orchestra
             std::this_thread::sleep_for(sleepFor);
         }
     }
-    void Player::PlayAudio(const dpp::voiceconn* voice, const size_t& index)
+    void Player::DecodeAudio(const dpp::voiceconn* voice, const size_t& index)
     {
         GE_ASSERT(!m_Decoders.empty(), "m_Decoders is empty.");
 
@@ -114,11 +114,11 @@ namespace Orchestra
             GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", totalDuration, '.');
     }
 
-    void Player::AddAudio(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
+    void Player::AddDecoder(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
     {
         m_Decoders.emplace(m_Decoders.begin() + pos, url, AV_SAMPLE_FMT_S16, sampleRate);
     }
-    void Player::AddAudioBack(const std::string_view& url, const uint32_t& sampleRate)
+    void Player::AddDecoderBack(const std::string_view& url, const uint32_t& sampleRate)
     {
         m_Decoders.emplace_back(url, AV_SAMPLE_FMT_S16, sampleRate);
     }
@@ -164,7 +164,15 @@ namespace Orchestra
 
     void Player::SetAudioSampleRate(const uint32_t& sampleRate, const size_t& index)
     {
+        const bool wasPaused = m_IsPaused;
+
+        if(!wasPaused)
+            Pause(true);
+
         m_Decoders[index].SetSampleRate(sampleRate);
+
+        if(!wasPaused)
+            Pause(false);
     }
 
     void Player::SetEnableLogSentPackets(const bool& enable)
@@ -201,7 +209,7 @@ namespace Orchestra
     {
         return m_SentPacketSize;
     }
-    size_t Player::GetAudioCount() const noexcept
+    size_t Player::GetDecodersCount() const noexcept
     {
         return m_Decoders.size();
     }

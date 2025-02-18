@@ -35,6 +35,15 @@ namespace Orchestra
         WorkersManager<void> m_WorkersManger;
 
     private:
-        static ParsedCommand ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& prefix, const std::string_view& message);
+        struct ParsedCommandWithIndex
+        {
+            ParsedCommand parsedCommand;
+            size_t index;
+        };
+
+    private:
+        static ParsedCommandWithIndex ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset = 0);
+        static bool IsParamNameChar(const char& ch);
+        static bool IsParamValueChar(const char& ch);
     };
 }

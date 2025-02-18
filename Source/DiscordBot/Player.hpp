@@ -18,10 +18,10 @@ namespace Orchestra
         Player(const uint32_t& sentPacketsSize = 200000, const bool& enableLazyDecoding = true, const bool& enableLogSentPackets = false);
 
         //blocks current thread
-        void PlayAudio(const dpp::voiceconn* voice, const size_t& index = 0);
+        void DecodeAudio(const dpp::voiceconn* voice, const size_t& index = 0);
 
-        void AddAudio(const std::string_view& url, const uint32_t& sampleRate = 48000, const size_t& pos = 0);
-        void AddAudioBack(const std::string_view& url, const uint32_t& sampleRate = 48000);
+        void AddDecoder(const std::string_view& url, const uint32_t& sampleRate = 48000, const size_t& pos = 0);
+        void AddDecoderBack(const std::string_view& url, const uint32_t& sampleRate = 48000);
 
         void DeleteAudio(const size_t& index = 0);
         void DeleteAllAudio();
@@ -46,7 +46,7 @@ namespace Orchestra
         bool GetEnableLazyDecoding() const noexcept;
         uint32_t GetSentPacketSize() const noexcept;
 
-        size_t GetAudioCount() const noexcept;
+        size_t GetDecodersCount() const noexcept;
 
     private:
         void LazyDecodingCheck(const std::chrono::milliseconds& toWait, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10)) const;
