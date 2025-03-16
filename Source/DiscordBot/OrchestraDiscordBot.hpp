@@ -23,21 +23,26 @@ namespace Orchestra
         void SetEnableLogSentPackets(const bool& enable);
         void SetEnableLazyDecoding(const bool& enable);
         void SetSentPacketSize(const uint32_t& size);
+        void SetAdminSnowflake(const dpp::snowflake& id);
 
         bool GetEnableLogSentPackets() const noexcept;
         bool GetEnableLazyDecoding() const noexcept;
         uint32_t GetSentPacketSize() const noexcept;
+        dpp::snowflake GetAdminSnowflake() const noexcept;
 
     private:
-        void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
         void CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandStop(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPause(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandSkip(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandLeave(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandTerminate(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+
     private:
         Player m_Player;
+
+        dpp::snowflake m_AdminSnowflake;
 
         const std::string m_yt_dlpPath;
 

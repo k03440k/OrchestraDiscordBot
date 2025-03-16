@@ -1,3 +1,5 @@
+#define NOMINMAX
+
 #include "OrchestraDiscordBot.hpp"
 
 #include <atomic>
@@ -20,7 +22,7 @@ namespace Orchestra
     using namespace GuelderResourcesManager;
 
     OrchestraDiscordBot::OrchestraDiscordBot(const std::string_view& token, const std::string_view& prefix, const std::string& yt_dlpPath, uint32_t intents)
-        : DiscordBot(token, prefix, intents), m_Player(200000, true, false), m_yt_dlpPath(yt_dlpPath)
+        : DiscordBot(token, prefix, intents), m_Player(200000, true, false), m_yt_dlpPath(yt_dlpPath), m_AdminSnowflake(0)
     {
         this->on_voice_state_update(
             [this](const dpp::voice_state_update_t& voiceState)
@@ -49,7 +51,7 @@ namespace Orchestra
         //support of commands like: "!play -speed .4" so to finish the Param system - DONE
         //add support of playlists
         //add support of streaming audio from raw url, like from google drive
-        //add support of skipping a certain time
+        //add support of skipping a certain time - DONE
         //add gui?
         //add support of looking for url depending on the name so that message contain only the name, for instance, "!play "Linkpark: Numb"" - DONE
         //make first decoding faster then next so to make play almost instantly
@@ -67,13 +69,13 @@ namespace Orchestra
         this->AddCommand({ "play",
             std::bind(&OrchestraDiscordBot::CommandPlay, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
             {
-                ParamProperties{"speed", Type::Float},
-                ParamProperties{"repeat", Type::Int},
+                ParamProperties{"speed", Type::Float, "Changes speed of audio. If speed < 1: audio plays faster. This param can be called while audio is playing."},
+                ParamProperties{"repeat", Type::Int, Logger::Format("Repeats audio for certain number. If repeat < 0: the audio will be playing for ", std::numeric_limits<int>::max(), " times.")},
                 //ParamProperties{"index", Type::Int},
-                ParamProperties{"search", Type::Bool},//temp
-                ParamProperties{"noinfo", Type::Bool}
+                ParamProperties{"search", Type::Bool, "If search is explicitly set: it will search or not search via yt-dlp."},//temp
+                ParamProperties{"noinfo", Type::Bool, "If noinfo is true: the info(name, url(optional), duration) about track won't be sent."}
             },
- "I should join your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
+            "Joins your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
             });
         //stop
         this->AddCommand({ "stop",
@@ -90,7 +92,10 @@ namespace Orchestra
         //skip
         this->AddCommand({ "skip",
             std::bind(&OrchestraDiscordBot::CommandSkip, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-            {},
+            {
+                ParamProperties{"secs", Type::Float, "Skips given amount of seconds."},
+                ParamProperties{"tosecs", Type::Float, "If tosecs < 0: it will skip to the beginning of the audio. Skips up to the given time."}
+            },
             "Skips current track"
             });
         //leave
@@ -103,15 +108,37 @@ namespace Orchestra
         this->AddCommand({ "terminate",
             std::bind(&OrchestraDiscordBot::CommandTerminate, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
             {},
-            "Terminates the bot. Only powerful man can use this command."
+            "Terminates the bot. Only admin can use this command."
             });
     }
 
-    void OrchestraDiscordBot::CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    void OrchestraDiscordBot::CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const
     {
         std::stringstream outStream;
 
-        std::ranges::for_each(this->m_Commands, [&outStream, this](const Command& command) { outStream << m_Prefix << command.name << " - " << command.description << '\n'; });
+        for(auto&& command : m_Commands)
+        {
+            outStream << m_Prefix << "**" << command.name << "**";
+
+            if(!command.description.empty())
+                outStream << " - " << command.description;
+
+            outStream << '\n';
+
+            if(!command.paramsProperties.empty())
+            {
+                outStream << "\tParams:\n";
+                for(auto&& paramProperties : command.paramsProperties)
+                {
+                    outStream << "\t\t" << '[' << TypeToString(paramProperties.type) << "] " << "**" << paramProperties.name << "**";
+
+                    if(!paramProperties.description.empty())
+                        outStream << " - " << paramProperties.description;
+
+                    outStream << '\n';
+                }
+            }
+        }
 
         message.reply(outStream.str());
     }
@@ -122,17 +149,19 @@ namespace Orchestra
             //join
             if(!m_IsJoined)
                 if(!dpp::find_guild(message.msg.guild_id)->connect_member_voice(message.msg.author.id))
+                {
                     message.reply("You don't seem to be in a voice channel!");
+                    return;
+                }
 
             m_IsStopped = false;
 
-            GE_LOG(Orchestra, Info, L"Received music value: ", StringToWString(value));
+            GE_LOG(Orchestra, Info, L"Received music value: ", GuelderConsoleLog::StringToWString(value));
 
             std::vector<std::string> receivedUrls;
 
             bool usingSearch = !IsValidURL(value.data());
-            if(!usingSearch)
-                GetParamValue(params, "search", usingSearch);
+            GetParamValue(params, "search", usingSearch);
 
             //need rework
             {
@@ -140,28 +169,30 @@ namespace Orchestra
 
                 if(usingSearch)
                 {
-                    std::wstring wValue = StringToWString(value);
-                    std::wstring wYt_dlpPath = StringToWString(m_yt_dlpPath);
+                    std::wstring wValue = GuelderConsoleLog::StringToWString(value);
+                    std::wstring wYt_dlpPath = GuelderConsoleLog::StringToWString(m_yt_dlpPath);
 
                     //std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"ytsearch:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
                     std::wstring wCall = Logger::Format(std::move(wYt_dlpPath), L" \"ytsearch:", std::move(wValue), L"\" -f bestaudio --get-url");
 
                     receivedUrls = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1);
 
-                    GE_ASSERT(!receivedUrls.empty(), "Failed to find track on youtube: ", value, '.');
+                    O_ASSERT(!receivedUrls.empty(), "Failed to find track on youtube: ", value, '.');
 
                     //call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", receivedUrls[0], '\"');
                 }
                 else
                 {
-                    call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", value, '\"');
+                    call = Logger::Format(m_yt_dlpPath, " -f bestaudio --get-url \"", value, '\"');
                     receivedUrls = ResourcesManager::ExecuteCommand(call, 1);
                 }
             }
 
-            GE_ASSERT(!receivedUrls.empty(), "Failed to get raw url from ", value, '.');
+            bool yt_dlpSuccess = !receivedUrls.empty();
 
-            const std::string rawUrl = receivedUrls[0];
+            O_ASSERT(yt_dlpSuccess, "Failed to get raw url from ", value, '.');
+
+            const std::string rawUrl{ !yt_dlpSuccess ? value : receivedUrls[0] };
 
             GE_LOG(Orchestra, Info, "Received raw url to audio: ", rawUrl);
 
@@ -178,54 +209,58 @@ namespace Orchestra
 
             float speed = 1;
             GetParamValue(params, "speed", speed);
+
             int repeat = 1;
             GetParamValue(params, "repeat", repeat);
+            if(repeat < 0)
+                repeat = std::numeric_limits<int>::max();
+
             bool noInfo = false;
             GetParamValue(params, "noinfo", noInfo);
 
             std::lock_guard lock{ m_PlayMutex };
 
             //TODO: rework: it is too slow
-            if(!noInfo)
+            if(yt_dlpSuccess && !noInfo)
             {
                 std::thread discordInfo(
-                   [&, this]
-                   {
-                       std::string ytUrl;
-                       ytUrl.reserve(44);
-                       if(usingSearch)
-                       {
-                           std::wstring wValue = StringToWString(value);
-                           std::wstring wYt_dlpPath = StringToWString(m_yt_dlpPath);
+                    [&, this]
+                    {
+                        std::string ytUrl;
+                        ytUrl.reserve(44);
+                        if(usingSearch)
+                        {
+                            std::wstring wValue = GuelderConsoleLog::StringToWString(value);
+                            std::wstring wYt_dlpPath = GuelderConsoleLog::StringToWString(m_yt_dlpPath);
 
-                           //to get yt url
-                           std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"ytsearch:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
+                            //to get yt url
+                            std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"ytsearch:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
 
-                           ytUrl = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1)[0];
+                            ytUrl = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1)[0];
 
-                           if(!m_Player.GetIsDecoding())
-                               return;
-                       }
-                       else
-                           ytUrl = value;
+                            if(!m_Player.GetIsDecoding())
+                                return;
+                        }
+                        else
+                            ytUrl = value;
 
-                       std::wstring title = ResourcesManager::ExecuteCommand<char, wchar_t>(Logger::Format(m_yt_dlpPath, " --print \"%(title)s\" \"", ytUrl, '\"'))[0];
+                        std::wstring title = ResourcesManager::ExecuteCommand<char, wchar_t>(Logger::Format(m_yt_dlpPath, " --print \"%(title)s\" \"", ytUrl, '\"'))[0];
 
-                       if(!m_Player.GetIsDecoding())
-                           return;
+                        if(!m_Player.GetIsDecoding())
+                            return;
 
-                       std::string duration = ResourcesManager::ExecuteCommand(Logger::Format(m_yt_dlpPath, " --get-duration ", ytUrl))[0];
+                        std::string duration = ResourcesManager::ExecuteCommand(Logger::Format(m_yt_dlpPath, " --get-duration ", ytUrl))[0];
 
-                       if(!m_Player.GetIsDecoding())
-                           return;
+                        if(!m_Player.GetIsDecoding())
+                            return;
 
-                       auto m = Logger::Format(L"**", title, L"** is going to be played for ", StringToWString(duration));
+                        auto m = Logger::Format(L"**", title, L"** is going to be played for ", GuelderConsoleLog::StringToWString(duration));
 
-                       if(usingSearch)
-                           m += Logger::Format(L"\nURL: ", StringToWString(ytUrl));
+                        if(usingSearch)
+                            m += Logger::Format(L"\nURL: ", GuelderConsoleLog::StringToWString(ytUrl));
 
-                       message.reply(WStringToString(m));
-                   });
+                        message.reply(GuelderConsoleLog::WStringToString(m));
+                    });
                 discordInfo.detach();
             }
 
@@ -234,7 +269,7 @@ namespace Orchestra
                 for(size_t i = 0; i < repeat && !m_IsStopped; ++i)
                 {
                     m_Player.AddDecoderBack(rawUrl, Decoder::DEFAULT_SAMPLE_RATE * speed);
-                    m_Player.DecodeAudio(v);
+                    m_Player.DecodeAndSendAudio(v);
 
                     if(m_Player.GetDecodersCount())
                         m_Player.DeleteAudio();
@@ -249,7 +284,7 @@ namespace Orchestra
             /*for(size_t i = 1; i <= urlCount; ++i)
             {
                 const std::string currentUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url --playlist-items", i, " \"", inUrl, '\"'))[0];
-                DecodeAudio(v, rawUrl, bufferSize, logSentPackets);
+                DecodeAndSendAudio(v, rawUrl, bufferSize, logSentPackets);
             }*/
         }
         else
@@ -276,11 +311,7 @@ namespace Orchestra
     {
         dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
 
-        if(!v)
-        {
-            GE_LOG(Orchestra, Error, "this->get_shard(0)->get_voice(message.msg.guild_id) == nullptr for some reason");
-            return;
-        }
+        O_ASSERT(v && v->voiceclient && v->voiceclient->is_ready(), "Failed to stop.");
 
         m_Player.Stop();
         m_IsStopped = true;
@@ -294,6 +325,8 @@ namespace Orchestra
         {
             dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
 
+            O_ASSERT(v && v->voiceclient && v->voiceclient->is_ready(), "Failed to pause.");
+
             m_Player.Pause(!m_Player.GetIsPaused());
             v->voiceclient->pause_audio(m_Player.GetIsPaused());
 
@@ -304,10 +337,31 @@ namespace Orchestra
     }
     void OrchestraDiscordBot::CommandSkip(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
+        float tosecs = 0.f;
+        GetParamValue(params, "tosecs", tosecs);
+        float secs = 0.f;
+        if(tosecs <= 0.f)
+            GetParamValue(params, "secs", secs);
+
         dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
 
-        v->voiceclient->stop_audio();
-        m_Player.Skip();
+        O_ASSERT(v && v->voiceclient && v->voiceclient->is_ready(), "Failed to skip.");
+
+        if(m_Player.GetDecodersCount() == 0)
+            return;
+
+        if(tosecs == 0.f && secs == 0.f)
+        {
+            v->voiceclient->stop_audio();
+            m_Player.Skip();
+        }
+        else
+        {
+            if(tosecs > 0.f)
+                m_Player.SkipToSeconds(tosecs, 0);
+            else
+                m_Player.SkipSeconds(secs - v->voiceclient->get_secs_remaining(), 0);//DOESN'T work properly
+        }
     }
     void OrchestraDiscordBot::CommandLeave(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
@@ -327,7 +381,7 @@ namespace Orchestra
     }
     void OrchestraDiscordBot::CommandTerminate(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
-        if(message.msg.author.id == 465169363230523422)//k03440k
+        if(m_AdminSnowflake != 0 && message.msg.author.id == m_AdminSnowflake)
         {
             //disconnect
             dpp::voiceconn* voice = this->get_shard(0)->get_voice(message.msg.guild_id);
@@ -342,6 +396,8 @@ namespace Orchestra
 
             exit(0);
         }
+        else
+            message.reply("You are not an admin!");
     }
 
     void OrchestraDiscordBot::SetEnableLogSentPackets(const bool& enable)
@@ -356,6 +412,10 @@ namespace Orchestra
     {
         m_Player.SetSentPacketSize(size);
     }
+    void OrchestraDiscordBot::SetAdminSnowflake(const dpp::snowflake& id)
+    {
+        m_AdminSnowflake = id;
+    }
 
     bool OrchestraDiscordBot::GetEnableLogSentPackets() const noexcept
     {
@@ -368,5 +428,9 @@ namespace Orchestra
     uint32_t OrchestraDiscordBot::GetSentPacketSize() const noexcept
     {
         return m_Player.GetSentPacketSize();
+    }
+    dpp::snowflake OrchestraDiscordBot::GetAdminSnowflake() const noexcept
+    {
+        return m_AdminSnowflake;
     }
 }

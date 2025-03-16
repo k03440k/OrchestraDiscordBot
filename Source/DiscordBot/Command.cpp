@@ -20,7 +20,7 @@ namespace Orchestra
         for(auto&& inParam : params)
         {
             if(std::ranges::find(paramsProperties, inParam.properties) == paramsProperties.end())
-                GE_THROW("Failed to interpred parameter: ", inParam.properties.name, '.');
+                O_THROW("Failed to interpred parameter: ", inParam.properties.name, '.');
 
             //check if the param truly has its type
             switch(inParam.properties.type)

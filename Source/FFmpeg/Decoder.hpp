@@ -5,13 +5,8 @@
 
 extern "C"
 {
-#include <libavformat/avformat.h>
-#include <libavcodec/avcodec.h>
-#include <libavutil/opt.h>
-#include <libavutil/frame.h>
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
-#include <libswscale/swscale.h>
 }
 
 #include "FFmpegUniquePtrManager.hpp"
@@ -22,8 +17,9 @@ namespace Orchestra
     {
     public:
         static constexpr uint32_t DEFAULT_SAMPLE_RATE = 48000;
+        static constexpr AVSampleFormat DEFAULT_OUT_SAMPLE_FORMAT = AV_SAMPLE_FMT_S16;
     public:
-        Decoder(const std::string_view& url, const AVSampleFormat& outSampleFormat, const uint32_t& outSampleRate = DEFAULT_SAMPLE_RATE);
+        Decoder(const std::string_view& url, const AVSampleFormat& outSampleFormat = DEFAULT_OUT_SAMPLE_FORMAT, const uint32_t& outSampleRate = DEFAULT_SAMPLE_RATE);
         ~Decoder() = default;
 
         Decoder(const Decoder& other);
@@ -32,19 +28,44 @@ namespace Orchestra
         Decoder& operator=(Decoder&& other) noexcept = default;
 
         std::vector<uint8_t> DecodeAudioFrame() const;
+
+        void SkipToTimestamp(const int64_t& timestamp) const;
+        void SkipTimestamp(const int64_t& timestamp) const;
+        void SkipToSeconds(const float& seconds) const;
+        void SkipSeconds(const float& seconds) const;
+
         uint32_t FindStreamIndex(const AVMediaType& mediaType) const;
 
-        void SetSampleFormat(const AVSampleFormat& sampleFormat);
-        void SetSampleRate(const uint32_t& sampleRate);
-
         bool AreThereFramesToProcess() const;
+
+        //getters, setters
+    public:
+        int GetInitialSampleRate() const;
+        AVSampleFormat GetInitialSampleFormat() const;
+
+        //recreates m_SwrContext
+        void SetOutSampleFormat(const AVSampleFormat& sampleFormat);
+        //recreates m_SwrContext
+        void SetOutSampleRate(const uint32_t& sampleRate);
+
+        AVSampleFormat GetOutSampleFormat() const;
+        int GetOutSampleRate() const;
+
         //in seconds
         int64_t GetDuration() const;
+        float GetDurationSeconds() const;
+
         int GetMaxBufferSize() const;
+
+        int64_t GetCurrentTimestamp() const;
+
+        double GetTimestampToSecondsRatio() const;
 
     private:
         static void CopySwrParams(SwrContext* from, SwrContext* to);
         static SwrContext* DuplicateSwrContext(SwrContext* from);
+
+        AVStream* GetStream() const;
 
     private:
         FFmpegUniquePtrManager::UniquePtrAVFormatContext m_FormatContext;
@@ -53,8 +74,10 @@ namespace Orchestra
         FFmpegUniquePtrManager::UniquePtrAVPacket m_Packet;
         FFmpegUniquePtrManager::UniquePtrAVFrame m_Frame;
 
+        int m_MaxBufferSize;
+
         uint32_t m_AudioStreamIndex;
-        AVSampleFormat m_SampleFormat;
-        uint32_t m_SampleRate;
+        AVSampleFormat m_OutSampleFormat;
+        int m_OutSampleRate;
     };
 }

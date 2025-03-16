@@ -6,6 +6,8 @@
 
 #include <GuelderConsoleLog.hpp>
 
+#include "GuelderResourcesManager.hpp"
+
 #include "../Utils.hpp"
 
 namespace Orchestra
@@ -32,6 +34,7 @@ namespace Orchestra
 
         std::string name;
         Type type;
+        std::string description;
     };
     struct Param
     {
@@ -48,31 +51,43 @@ namespace Orchestra
         template<typename Return>
         Return GetValue() const
         {
-            GE_THROW("Unsupported type.");
+            O_THROW("Unsupported type.");
         }
-        template<>
-        int GetValue() const
+        template<GuelderResourcesManager::IsNumber Numeral>
+        Numeral GetValue() const
         {
-            GE_ASSERT(properties.type == Type::Int, "The type of param is not ", typeid(int).name());
-            return StringToInt(value);
-        }
-        template<>
-        float GetValue() const
-        {
-            GE_ASSERT(properties.type == Type::Float, "The type of param is not ", typeid(float).name());
-            return StringToFloat(value);
+            if(!IsNumeral())
+                throw std::invalid_argument(GuelderConsoleLog::Logger::Format("The param's type is not ", typeid(Numeral).name()));
+
+            return GuelderResourcesManager::StringToNumber<Numeral>(value);
         }
         template<>
         bool GetValue() const
         {
-            GE_ASSERT(properties.type == Type::Bool, "The type of param is not ", typeid(bool).name());
-            return StringToBool(value);
+            O_ASSERT(properties.type == Type::Bool, "The param's type is not ", typeid(bool).name());
+            return GuelderResourcesManager::StringToBool(value);
         }
         template<>
         std::string GetValue() const
         {
-            GE_ASSERT(properties.type == Type::String, "The type of param is not ", typeid(std::string).name());
             return value;
+        }
+        template<>
+        std::string_view GetValue() const
+        {
+            return value;
+        }
+
+        bool IsNumeral() const
+        {
+            switch(properties.type)
+            {
+            case Type::Int:
+            case Type::Float:
+                return true;
+            default: 
+                return false;
+            }
         }
 
         ParamProperties properties;
@@ -85,29 +100,7 @@ namespace Orchestra
         std::vector<Param> params;
         std::string value;
     };
-    inline auto GetParam(const std::vector<Param>& params, const std::string_view& name)
-    {
-        return std::ranges::find_if(params, [&name](const Param& param) { return param.properties.name == name; });
-    }
-    inline bool IsThereParam(const std::vector<Param>& params, const std::string_view& name)
-    {
-        return (GetParam(params, name) != params.end());
-    }
-    template<typename Return>
-    Return GetParamValue(const std::vector<Param>& params, const std::string_view& name)
-    {
-        auto found = GetParam(params, name);
 
-        return found->GetValue<Return>();
-    }
-    template<typename T>
-    void GetParamValue(const std::vector<Param>& params, const std::string_view& name, T& value)
-    {
-        auto found = GetParam(params, name);
-
-        if(found != params.end())
-            value = found->GetValue<T>();
-    }
     struct Command
     {
     public:
@@ -127,4 +120,42 @@ namespace Orchestra
         std::string description;
         std::vector<ParamProperties> paramsProperties;
     };
+
+    inline auto GetParam(const std::vector<Param>& params, const std::string_view& name)
+    {
+        return std::ranges::find_if(params, [&name](const Param& param) { return param.properties.name == name; });
+    }
+    inline bool IsThereParam(const std::vector<Param>& params, const std::string_view& name)
+    {
+        return (GetParam(params, name) != params.end());
+    }
+    template<typename Return>
+    Return GetParamValue(const std::vector<Param>& params, const std::string_view& name)
+    {
+        const auto found = GetParam(params, name);
+
+        return found->GetValue<Return>();
+    }
+    template<typename T>
+    void GetParamValue(const std::vector<Param>& params, const std::string_view& name, T& value)
+    {
+        auto found = GetParam(params, name);
+
+        if(found != params.end())
+            value = found->GetValue<T>();
+    }
+    inline std::string_view TypeToString(const Type& type)
+    {
+        switch(type)
+        {
+        case Type::Int:
+            return "int";
+        case Type::Float:
+            return "float";
+        case Type::Bool:
+            return "bool";
+        case Type::String:
+            return "string";
+        }
+    }
 }

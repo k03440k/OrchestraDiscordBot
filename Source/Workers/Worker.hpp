@@ -5,26 +5,34 @@
 
 namespace Orchestra
 {
-    template<class T>
+    template<class T, GuelderConsoleLog::Concepts::IsException _Exception = std::exception>
     struct Worker
     {
-    private:
-        static void DefaultDeleter() noexcept {}
     public:
-        Worker(const size_t& index, std::function<T()>&& work)
-            :m_Index(index), m_HasWorkBeenStarted(false), m_Work(std::move(work)) {}
-        Worker(Worker&& other) noexcept
-            : m_Index(std::move(other.m_Index)), m_HasWorkBeenStarted(std::move(other.m_HasWorkBeenStarted)), m_Future(std::move(other.m_Future)), m_Work(std::move(other.m_Work)) {}
+        Worker(const size_t& index, std::function<T()>&& work, std::function<void(const _Exception&)>&& exceptionDeleter = []{})
+            :m_Index(index), m_HasWorkBeenStarted(false),
+        m_Work(
+            [_work = std::move(work), _exceptionDeleter = std::move(exceptionDeleter)]
+            {
+                try
+                {
+                    _work();
+                }
+                catch(const _Exception& e)
+                {
+                    _exceptionDeleter(e);
+                    throw e;
+                }
+                catch(...)
+                {
+                    const auto e = std::exception{"Unknown exception"};
+                    //_exceptionDeleter(e);
+                    throw e;
+                }
+            }) {}
+        Worker(Worker&&) noexcept = default;
+        Worker& operator=(Worker&&) noexcept = default;
 
-        Worker& operator=(Worker&& other) noexcept
-        {
-            m_Index = std::move(other.m_Index);
-            m_Future = std::move(other.m_Future);
-            m_Work = std::move(other.m_Work);
-            m_HasWorkBeenStarted = std::move(other.m_HasWorkBeenStarted);
-
-            return *this;
-        }
         ~Worker()
         {
             if(m_Future.valid())

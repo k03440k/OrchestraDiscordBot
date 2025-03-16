@@ -13,10 +13,8 @@
 
 namespace Orchestra
 {
-    GE_DEFINE_LOG_CATEGORY(DPP);
-
-    DiscordBot::DiscordBot(const std::string_view& token, const std::string_view& prefix, uint32_t intents)
-        : dpp::cluster(token.data(), intents), m_Prefix(prefix) {}
+    DiscordBot::DiscordBot(const std::string_view& token, const std::string_view& prefix, const char& paramNamePrefix, uint32_t intents)
+        : dpp::cluster(token.data(), intents), m_Prefix(prefix), m_ParamNamePrefix(paramNamePrefix) {}
 
     void DiscordBot::AddCommand(const Command& command)
     {
@@ -33,39 +31,32 @@ namespace Orchestra
         on_message_create(
             [&](const dpp::message_create_t& message)
             {
-                try
-                {
-                    if(message.msg.author.id != me.id)
+                const size_t id = m_WorkersManger.AddWorker(
+                    [message, this]
                     {
-                        const auto& content = message.msg.content;
-
-                        auto foundPrefix = std::ranges::search(content, m_Prefix);
-
-                        if(foundPrefix.begin() == content.begin())
+                        if(message.msg.attachments.empty() && message.msg.author.id != me.id)
                         {
-                            size_t commandOffset = foundPrefix.size();
+                            const auto& content = message.msg.content;
 
-                            ParsedCommandWithIndex tmp = ParseCommand(m_Commands, content, commandOffset);
+                            if(const auto foundPrefix = std::ranges::search(content, m_Prefix); foundPrefix.begin() == content.begin())
+                            {
+                                const size_t commandOffset = foundPrefix.size();
 
-                            ParsedCommand parsedCommand = std::move(tmp.parsedCommand);
-                            size_t commandIndex = tmp.index;
+                                auto [parsedCommand, index] = ParseCommand(m_Commands, content, commandOffset, m_ParamNamePrefix);
 
-                            auto command = m_Commands.begin() + commandIndex;
+                                const auto command = m_Commands.begin() + index;
 
-                            GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
+                                GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
 
-                            auto f = [command, message, parsedCommand] { (*command)(message, parsedCommand.params, parsedCommand.value); };
-
-                            size_t id = m_WorkersManger.AddWorker(std::move(f), true);
-
-                            m_WorkersManger.Work(id);
+                                (*command)(message, parsedCommand.params, parsedCommand.value);
+                            }
                         }
-                    }
-                }
-                catch(const std::exception& e)
-                {
-                    message.reply(e.what());
-                }
+                    },
+                    [message](const OrchestraException& oe) { message.reply(GuelderConsoleLog::Logger::Format("**Exception:** ", oe.GetUserMessage())); },
+                    true
+                );
+
+                m_WorkersManger.Work(id);
             }
         );
     }
@@ -79,7 +70,7 @@ namespace Orchestra
     {
         this->on_log(logger);
     }
-    DiscordBot::ParsedCommandWithIndex DiscordBot::ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset)
+    DiscordBot::ParsedCommandWithIndex DiscordBot::ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset, const char& paramNamePrefix)
     {
         using CommandsIterator = decltype(supportedCommands.begin());
         using MessageIterator = decltype(message.begin());
@@ -94,7 +85,7 @@ namespace Orchestra
             commandName = message.substr(commandOffset, commandLength);
 
             foundSupportedCommand = std::ranges::find_if(supportedCommands, [&commandName](const Command& _command) { return commandName == _command.name; });
-            GE_ASSERT(foundSupportedCommand != supportedCommands.end(), "Failed to find command with name \"", commandName, "\".");
+            O_ASSERT(foundSupportedCommand != supportedCommands.end(), "Failed to find command with name \"", commandName, "\".");
 
             commandEndOffset += commandLength + 1;
             supportedCommandIndex = foundSupportedCommand - supportedCommands.begin();
@@ -116,7 +107,7 @@ namespace Orchestra
             for(size_t i = commandEndOffset; i < message.size(); i++)
             {
                 //setting its name
-                if(message[i - 1] == ' ' && message[i] == '-' && i + 1 < message.size() && IsParamNameChar(message[i + 1]))
+                if(message[i - 1] == ' ' && message[i] == paramNamePrefix && i + 1 < message.size() && IsParamNameChar(message[i + 1]))
                 {
                     paramsValuesCount = 0;
                     paramsCount++;

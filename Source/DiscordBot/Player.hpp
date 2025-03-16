@@ -18,7 +18,7 @@ namespace Orchestra
         Player(const uint32_t& sentPacketsSize = 200000, const bool& enableLazyDecoding = true, const bool& enableLogSentPackets = false);
 
         //blocks current thread
-        void DecodeAudio(const dpp::voiceconn* voice, const size_t& index = 0);
+        void DecodeAndSendAudio(const dpp::voiceconn* voice, const size_t& index = 0);
 
         void AddDecoder(const std::string_view& url, const uint32_t& sampleRate = 48000, const size_t& pos = 0);
         void AddDecoderBack(const std::string_view& url, const uint32_t& sampleRate = 48000);
@@ -29,6 +29,9 @@ namespace Orchestra
         void Stop();
         void Pause(const bool& pause);
         void Skip();
+        
+        void SkipToSeconds(const float& seconds, const size_t& index = 0);
+        void SkipSeconds(const float& seconds, const size_t& index = 0);
 
         void Reserve(const size_t& capacity);
 
@@ -59,9 +62,15 @@ namespace Orchestra
         bool m_EnableLogSentPackets : 1;
 
         std::atomic_bool m_IsDecoding;
+        std::atomic_bool m_IsSkippingFrames;
+        std::atomic_bool m_IsChangingSampleRate;
+
+        std::atomic_int m_PreviousSampleRate;
 
         std::atomic_bool m_IsPaused;
         std::condition_variable m_PauseCondition;
         std::mutex m_PauseMutex;
+
+        std::atomic<float> m_CurrentDecoderDuration;
     };
 }

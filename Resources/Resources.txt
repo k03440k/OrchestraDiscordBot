@@ -1,6 +1,0 @@
-var botToken = "";
-var commandPrefix = "!";
-var yt_dlp = "";//path to yt-dlp .exe
-var sentPacketsSize = "1500000";//note: sent packet may be bigger than this value(bytes)
-var enableLoggingSentPackets = "true";//print message like: Sending 3001632 bytes of data; totalNumberOfReadings: 781.?
-var enableLazyPacketsSending = "true";

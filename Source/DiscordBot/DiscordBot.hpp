@@ -12,12 +12,12 @@
 
 namespace Orchestra
 {
-    GE_DECLARE_LOG_CATEGORY_EXTERN(DPP, All, true, false, true);
+    GE_DECLARE_LOG_CATEGORY_DEFAULT_COLORS_CONSTEXPR(DPP, All, true, false, true);
 
     class DiscordBot : protected dpp::cluster
     {
     public:
-        DiscordBot(const std::string_view& token, const std::string_view& prefix, uint32_t intents = dpp::i_all_intents);
+        DiscordBot(const std::string_view& token, const std::string_view& prefix, const char& paramNamePrefix = '-', uint32_t intents = dpp::i_all_intents);
         ~DiscordBot() override = default;
 
         void AddCommand(const Command& command);
@@ -30,9 +30,10 @@ namespace Orchestra
 
     protected:
         const std::string m_Prefix;
+        const char m_ParamNamePrefix;
         std::vector<Command> m_Commands;
 
-        WorkersManager<void> m_WorkersManger;
+        WorkersManager<void, OrchestraException> m_WorkersManger;
 
     private:
         struct ParsedCommandWithIndex
@@ -42,7 +43,7 @@ namespace Orchestra
         };
 
     private:
-        static ParsedCommandWithIndex ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset = 0);
+        static ParsedCommandWithIndex ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset = 0, const char& paramNamePrefix = '-');
         static bool IsParamNameChar(const char& ch);
         static bool IsParamValueChar(const char& ch);
     };
