@@ -21,8 +21,8 @@ namespace Orchestra
     using namespace GuelderConsoleLog;
     using namespace GuelderResourcesManager;
 
-    OrchestraDiscordBot::OrchestraDiscordBot(const std::string_view& token, const std::string_view& prefix, const std::string& yt_dlpPath, uint32_t intents)
-        : DiscordBot(token, prefix, intents), m_Player(200000, true, false), m_yt_dlpPath(yt_dlpPath), m_AdminSnowflake(0)
+    OrchestraDiscordBot::OrchestraDiscordBot(const std::string_view& token, const std::string& yt_dlpPath, const std::string_view& prefix, const char& paramPrefix, uint32_t intents)
+        : DiscordBot(token, prefix, paramPrefix, intents), m_Player(200000, true, false), m_yt_dlpPath(yt_dlpPath), m_AdminSnowflake(0)
     {
         this->on_voice_state_update(
             [this](const dpp::voice_state_update_t& voiceState)
