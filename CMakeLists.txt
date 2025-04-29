@@ -141,6 +141,10 @@ elseif(CMAKE_BUILD_TYPE EQUAL "Debug")
 endif()
 # -- dpp
 
+# -- rapidjson
+target_include_directories(${PROJECT_NAME} PUBLIC "External/rapidjson/include")
+# -- rapidjson
+
 # -- GuelderConsoleLog
 add_subdirectory("External/GuelderConsoleLog" "${CMAKE_CURRENT_BINARY_DIR}/GuelderConsoleLog")
 target_link_libraries(${PROJECT_NAME} PUBLIC GuelderConsoleLog)

@@ -129,6 +129,13 @@ namespace Orchestra
     {
         return (GetParam(params, name) != params.end());
     }
+    inline int GetParamIndex(const std::vector<Param>& params, const std::string_view& name)
+    {
+        if(const auto it = GetParam(params, name); it != params.end())
+            return it - params.begin();
+        else
+            return -1;
+    }
     template<typename Return>
     Return GetParamValue(const std::vector<Param>& params, const std::string_view& name)
     {

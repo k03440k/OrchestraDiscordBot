@@ -10,6 +10,9 @@
 
 #include <dpp/dpp.h>
 
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+
 #include <GuelderResourcesManager.hpp>
 
 #include "../Utils.hpp"
@@ -19,7 +22,6 @@
 namespace Orchestra
 {
     using namespace GuelderConsoleLog;
-    using namespace GuelderResourcesManager;
 
     OrchestraDiscordBot::OrchestraDiscordBot(const std::string_view& token, const std::string_view& yt_dlpPath, const std::string_view& prefix, const char& paramPrefix, uint32_t intents)
         : DiscordBot(token, prefix, paramPrefix, intents), m_Player(200000, true, false), m_AdminSnowflake(0), m_yt_dlpPath(yt_dlpPath)
@@ -77,7 +79,7 @@ namespace Orchestra
                 ParamProperties{"noinfo", Type::Bool, "If noinfo is true: the info(name, url(optional), duration) about track won't be sent."},
                 ParamProperties{"raw", Type::Bool, "If raw is false: it won't use yt-dlp for finding a raw url to audio."},
             },
-            "Joins your voice channel and play audio from youtube, soundcloud and all other stuff that yt-dlp supports."
+            "Joins your voice channel and play audio from youtube or soundcloud, or from raw url to audio, or admin's local files(note: a whole bunch of formats are not supported)."
             });
         //stop
         this->AddCommand({ "stop",
@@ -146,6 +148,8 @@ namespace Orchestra
     }
     void OrchestraDiscordBot::CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
+        constexpr std::string_view DEFAULT_SEARCH_ENGINE = "yt";
+
         if(!value.empty())
         {
             //join
@@ -158,110 +162,101 @@ namespace Orchestra
 
             m_IsStopped = false;
 
-            bool raw = false;
-            GetParamValue(params, "raw", raw);
+            bool isInputRaw = false;
+            GetParamValue(params, "raw", isInputRaw);
 
             GE_LOG(Orchestra, Info, L"Received music value: ", GuelderConsoleLog::StringToWString(value));
 
             std::string rawUrl;
 
-            std::string inSearchEngine = "yt";
-            GetParamValue(params, "searchengine", inSearchEngine);
-
-            if(!raw)
+            if(!isInputRaw)
             {
-                std::vector<std::string> receivedUrls;
+                //path also may contain non English letters
+                std::wstring wYt_dlpPath = StringToWString(m_yt_dlpPath);
+                //as urls may contain non English letters
+                std::wstring wValue = StringToWString(value);
+                std::wstring pipeCommand;
 
-                bool usingSearch = !IsValidURL(value.data());
-                GetParamValue(params, "search", usingSearch);
+                bool isUsingSearch = false;
 
-                if(inSearchEngine != "yt" && inSearchEngine != "sc")
+                if(const int index = GetParamIndex(params, "search"); index != -1)
+                    isUsingSearch = params[index].GetValue<bool>();
+                else
+                    isUsingSearch = !IsValidURL(value.data());
+
+                //making a command for yt-dlp
+                if(isUsingSearch)
                 {
-                    inSearchEngine = "yt";
-                    message.reply(Logger::Format(inSearchEngine, " is not supported as a searching engine. Using yt as a searching engine."));
-                }
-                std::wstring wInSearchEngine = GuelderConsoleLog::StringToWString(inSearchEngine);
+                    std::string searchEngine;
+                    GetParamValue(params, "searchengine", searchEngine);
 
-                //need rework
-                {
-                    std::string call;
+                    if(searchEngine.empty())
+                        searchEngine = DEFAULT_SEARCH_ENGINE;
 
-                    if(usingSearch)
+                    if(searchEngine != "yt" && searchEngine != "sc")
                     {
-                        std::wstring wValue = GuelderConsoleLog::StringToWString(value);
-                        std::wstring wYt_dlpPath = GuelderConsoleLog::StringToWString(m_yt_dlpPath);
-
-                        //std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"ytsearch:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
-                        std::wstring wCall = Logger::Format(std::move(wYt_dlpPath), L" \"", wInSearchEngine, L"search:", std::move(wValue), L"\" -f bestaudio --get-url");
-
-                        receivedUrls = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1);
-
-                        O_ASSERT(!receivedUrls.empty(), "Failed to find track with ", inSearchEngine, " search engine: ", value, '.');
-
-                        //call = Logger::Format(m_yt_dlpPath, " --flat-playlist -f bestaudio --get-url \"", receivedUrls[0], '\"');
+                        LogWarning(searchEngine, " search engine is unsupported. Using ", DEFAULT_SEARCH_ENGINE, " instead.");
+                        searchEngine = DEFAULT_SEARCH_ENGINE;
                     }
-                    else
-                    {
-                        call = Logger::Format(m_yt_dlpPath, " -f bestaudio --get-url \"", value, '\"');
-                        receivedUrls = ResourcesManager::ExecuteCommand(call, 1);
-                    }
+
+                    pipeCommand = Logger::Format(std::move(wYt_dlpPath), L" \"", StringToWString(searchEngine), L"search:", std::move(wValue), "\" --dump-json");
                 }
+                else
+                    pipeCommand = Logger::Format(std::move(wYt_dlpPath), L" \"", std::move(wValue), "\" --dump-json");
 
-                bool yt_dlpSuccess = !receivedUrls.empty();
+                //receiving json from yt-dlp
+                std::vector<std::wstring> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t>(pipeCommand, 1);
 
-                //O_ASSERT(yt_dlpSuccess, "Failed to get raw url from ", value, '.');
+                const bool yt_dlpSuccess = !output.empty();
+
                 if(!yt_dlpSuccess)
-                    GE_LOG(Orchestra, Warning, "Failed to get raw url from ", value, ". Trying to use it as already a raw url.");
-
-                rawUrl = !yt_dlpSuccess ? value : receivedUrls[0];
-
-                GE_LOG(Orchestra, Info, "Received raw url to audio: ", rawUrl);
-
-                bool noInfo = false;
-                GetParamValue(params, "noinfo", noInfo);
-
-                //TODO: rework: it is too slow
-                if(yt_dlpSuccess && !noInfo)
                 {
-                    std::thread discordInfo(
-                        [&, wInSearchEngine, this]
+                    O_ASSERT(IsValidURL(rawUrl.data()), value, " is not a valid url.");
+
+                    GE_LOG(Orchestra, Warning, L"Failed to get raw url from ", wValue, L". Assuming that it is an already raw url.");
+                    rawUrl = value;
+                }
+                else
+                {
+                    //this thing is huge
+                    std::wstring& wOutputJSON = output[0];
+
+                    rapidjson::GenericDocument<rapidjson::UTF16<>> jsonDocument;
+                    jsonDocument.Parse(wOutputJSON.c_str());
+
+                    O_ASSERT(!jsonDocument.HasParseError(), "Failed to parse json document from yt-dlp. Error offset: ", jsonDocument.GetErrorOffset(), '.');
+
+                    //GE_LOG(Orchestra, Info, wOutputJSON);
+
+                    auto itFormats = jsonDocument.FindMember(L"formats");
+
+                    O_ASSERT(itFormats != jsonDocument.MemberEnd() && itFormats->value.IsArray(), "Failed to find \"formats\" or \"formats\" is not an array in json from yt-dlp.");
+
+                    for(const auto& format : itFormats->value.GetArray())
+                        if(format.IsObject())
                         {
-                            std::string ytUrl;
-                            ytUrl.reserve(44);
-                            if(usingSearch)
+                            const auto itFormat = format.FindMember(L"resolution");
+                            //there is such member               it is a string                the string and "audio only" are equal
+                            if(itFormat != format.MemberEnd() && itFormat->value.IsString() && std::wcscmp(itFormat->value.GetString(), L"audio only") == 0)
                             {
-                                std::wstring wValue = GuelderConsoleLog::StringToWString(value);
-                                std::wstring wYt_dlpPath = GuelderConsoleLog::StringToWString(m_yt_dlpPath);
+                                auto itUrl = format.FindMember(L"url");
 
-                                //to get yt url
-                                std::wstring wCall = Logger::Format(wYt_dlpPath, L" \"", wInSearchEngine, L"search:", wValue, L"\" --flat-playlist -f bestaudio --get-url");
-
-                                ytUrl = ResourcesManager::ExecuteCommand<wchar_t, char>(wCall, 1)[0];
-
-                                if(!m_Player.GetIsDecoding())
-                                    return;
+                                if(itUrl != format.MemberEnd() && itUrl->value.IsString())
+                                    //found!
+                                    rawUrl = WStringToString(itUrl->value.GetString());
                             }
-                            else
-                                ytUrl = value;
+                        }
 
-                            std::wstring title = ResourcesManager::ExecuteCommand<char, wchar_t>(Logger::Format(m_yt_dlpPath, " --print \"%(title)s\" \"", ytUrl, '\"'))[0];
+                    O_ASSERT(!rawUrl.empty(), "Failed to find url for audio.");
 
-                            if(!m_Player.GetIsDecoding())
-                                return;
+                    //description
+                    //we assume that all variables exist
+                    std::wstring description = Logger::Format(L"**", jsonDocument.FindMember(L"title")->value.GetString(), L"**", L" is going to be played for **", jsonDocument.FindMember(L"duration")->value.GetFloat(), L"** seconds.");
 
-                            std::string duration = ResourcesManager::ExecuteCommand(Logger::Format(m_yt_dlpPath, " --get-duration ", ytUrl))[0];
+                    if(isUsingSearch)
+                        description += Logger::Format(L"\nURL: ", jsonDocument.FindMember(L"webpage_url")->value.GetString());
 
-                            if(!m_Player.GetIsDecoding())
-                                return;
-
-                            auto m = Logger::Format(L"**", title, L"** is going to be played for ", GuelderConsoleLog::StringToWString(duration));
-
-                            if(usingSearch)
-                                m += Logger::Format(L"\nURL: ", GuelderConsoleLog::StringToWString(ytUrl));
-
-                            message.reply(GuelderConsoleLog::WStringToString(m));
-                        });
-                    discordInfo.detach();
+                    message.reply(WStringToString(description));
                 }
             }
             else
@@ -273,6 +268,8 @@ namespace Orchestra
                     return;
                 }
             }
+
+            GE_LOG(Orchestra, Info, "Received raw url to audio: ", rawUrl);
 
             //joining stuff
             std::unique_lock joinLock{ m_JoinMutex };
@@ -323,15 +320,6 @@ namespace Orchestra
                 if(m_Player.GetDecodersCount())
                     m_Player.DeleteAllAudio();
             }
-            //const std::wstring title = StringToWString(ResourcesManager::ExecuteCommand(Logger::Format(m_CallYt_dlpPath, " --print \"%(title)s\" \"", rawUrl, '\"'))[0]);
-            //message.reply(WStringToString(Logger::Format(L"The url is going to be played: ", title)));
-            //const auto _urlCount = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist --print \"%(playlist_count)s\" \"", inUrl, '\"'), 1);
-            //const size_t urlCount = (!_urlCount.empty() && !_urlCount[0].empty() && _urlCount[0] != "NA" ? std::atoi(_urlCount[0].data()) : 0);
-            /*for(size_t i = 1; i <= urlCount; ++i)
-            {
-                const std::string currentUrl = ResourcesManager::ExecuteCommand(Logger::Format(yt_dlpPath, " --flat-playlist -f bestaudio --get-url --playlist-items", i, " \"", inUrl, '\"'))[0];
-                DecodeAndSendAudio(v, rawUrl, bufferSize, logSentPackets);
-            }*/
         }
         else
         {
