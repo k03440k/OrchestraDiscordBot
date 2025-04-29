@@ -1,11 +1,14 @@
 #include "FFmpegUniquePtrManager.hpp"
 
+#include "GuelderConsoleLog.hpp"
+
 namespace Orchestra
 {
 	void FFmpegUniquePtrManager::FreeFormatContext(AVFormatContext* formatContext)
     {
         //if(formatContext)
         {
+            GuelderConsoleLog::LogWarning("Freeing format context");
             avformat_close_input(&formatContext);
             avformat_free_context(formatContext);
         }

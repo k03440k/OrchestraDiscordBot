@@ -31,32 +31,30 @@ namespace Orchestra
         on_message_create(
             [&](const dpp::message_create_t& message)
             {
-                const size_t id = m_WorkersManger.AddWorker(
-                    [message, this]
+                if(message.msg.attachments.empty() && message.msg.author.id != me.id)
+                {
+                    const auto& content = message.msg.content;
+
+                    if(const auto foundPrefix = std::ranges::search(content, m_Prefix); foundPrefix.begin() == content.begin())
                     {
-                        if(message.msg.attachments.empty() && message.msg.author.id != me.id)
-                        {
-                            const auto& content = message.msg.content;
+                        const size_t commandOffset = foundPrefix.size();
 
-                            if(const auto foundPrefix = std::ranges::search(content, m_Prefix); foundPrefix.begin() == content.begin())
+                        auto [parsedCommand, index] = ParseCommand(m_Commands, content, commandOffset, m_ParamNamePrefix);
+
+                        const auto command = m_Commands.begin() + index;
+
+                        GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
+
+                        const size_t id = m_WorkersManger.AddWorker(
+                            [message, command, parsedCommand, this]
                             {
-                                const size_t commandOffset = foundPrefix.size();
-
-                                auto [parsedCommand, index] = ParseCommand(m_Commands, content, commandOffset, m_ParamNamePrefix);
-
-                                const auto command = m_Commands.begin() + index;
-
-                                GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
-
                                 (*command)(message, parsedCommand.params, parsedCommand.value);
-                            }
-                        }
-                    },
-                    [message](const OrchestraException& oe) { message.reply(GuelderConsoleLog::Logger::Format("**Exception:** ", oe.GetUserMessage())); },
-                    true
-                );
-
-                m_WorkersManger.Work(id);
+                            },
+                            [message](const OrchestraException& oe) { message.reply(GuelderConsoleLog::Logger::Format("**Exception:** ", oe.GetUserMessage())); },
+                            true);
+                        m_WorkersManger.Work(id);
+                    }
+                }
             }
         );
     }

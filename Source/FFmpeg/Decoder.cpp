@@ -21,7 +21,7 @@ extern "C"
 namespace Orchestra
 {
     Decoder::Decoder(const std::string_view& url, const AVSampleFormat& outSampleFormat, const uint32_t& outSampleRate)
-        : m_FormatContext(avformat_alloc_context(), FFmpegUniquePtrManager::FreeFormatContext),
+        : m_FormatContext(nullptr/*avformat_alloc_context()*/, FFmpegUniquePtrManager::FreeFormatContext),
         m_CodecContext(nullptr, FFmpegUniquePtrManager::FreeAVCodecContext),
         m_SwrContext(nullptr, FFmpegUniquePtrManager::FreeSwrContext),
         m_Packet(nullptr, FFmpegUniquePtrManager::FreeAVPacket),
@@ -41,10 +41,19 @@ namespace Orchestra
         av_dict_set(&options, "reconnect_on_http_error", "1", 0);
         av_dict_set(&options, "timeout", "2000000000", 0);
 
-        auto ptr = m_FormatContext.get();
+        AVFormatContext* f = avformat_alloc_context();
+
+        O_ASSERT(f, "Failed to initialize format context.");
+
+        //WTF?! why when I use m_FormatContext as ptr it crashes, but when a default ptr it works fine!!????
+        //auto ptr = m_FormatContext.get();
+        auto ptr = f;
         O_ASSERT(avformat_open_input(&ptr, url.data(), nullptr, &options) == 0, "Failed to open url: ", url);
 
-        O_ASSERT((avformat_find_stream_info(m_FormatContext.get(), nullptr)) >= 0, "Failed to retrieve stream info.");
+        O_ASSERT((avformat_find_stream_info(ptr, nullptr)) >= 0, "Failed to retrieve stream info.");
+
+        m_FormatContext.reset(f);
+        f = nullptr;
 
         m_AudioStreamIndex = FindStreamIndex(AVMEDIA_TYPE_AUDIO);
 

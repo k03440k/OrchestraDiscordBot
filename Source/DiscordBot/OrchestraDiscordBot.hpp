@@ -16,7 +16,7 @@ namespace Orchestra
     class OrchestraDiscordBot : public DiscordBot
     {
     public:
-        OrchestraDiscordBot(const std::string_view& token, const std::string& yt_dlpPath, const std::string_view& prefix = "!", const char& paramPrefix = '-', uint32_t intents = dpp::i_all_intents);
+        OrchestraDiscordBot(const std::string_view& token, const std::string_view& yt_dlpPath, const std::string_view& prefix = "!", const char& paramPrefix = '-', uint32_t intents = dpp::i_all_intents);
 
         //setters, getters
     public:
@@ -45,6 +45,8 @@ namespace Orchestra
         dpp::snowflake m_AdminSnowflake;
 
         const std::string m_yt_dlpPath;
+
+        constexpr static std::array<std::string_view, 4> m_SupportedYt_DlpSearchingEngines = {"yt", "ytm", "sc", "bil"};
 
         std::atomic_bool m_IsStopped;
         std::mutex m_PlayMutex;
