@@ -142,7 +142,7 @@ namespace Orchestra
 
     void Decoder::SkipToTimestamp(const int64_t& timestamp) const
     {
-        O_ASSERT(timestamp >= 0 && (timestamp * GetTimestampToSecondsRatio() * AV_TIME_BASE) <= GetDuration(), "The skipping timestamp ", timestamp, " is bigger or lesser than duration.");//TODO
+        O_ASSERT(timestamp >= 0 && (timestamp * GetTimestampToSecondsRatio() * AV_TIME_BASE) <= GetTotalDuration(), "The skipping timestamp ", timestamp, " is bigger or lesser than duration.");//TODO
 
         O_ASSERT(avformat_seek_file(m_FormatContext.get(), m_AudioStreamIndex, std::numeric_limits<int>::min(), timestamp, std::numeric_limits<int>::max(), AVSEEK_FLAG_BACKWARD) >= 0, "Failed to skip to timestamp ", timestamp);
 
@@ -154,7 +154,7 @@ namespace Orchestra
     }
     void Decoder::SkipToSeconds(const float& seconds) const
     {
-        /*O_ASSERT(seconds <= GetDurationSeconds(), "The duration of audio is lesser than ", seconds, "s.");
+        /*O_ASSERT(seconds <= GetTotalDurationSeconds(), "The duration of audio is lesser than ", seconds, "s.");
 
         const int64_t seekTimestamp = av_rescale_q(seconds * AV_TIME_BASE, AV_TIME_BASE_Q, m_FormatContext->streams[m_AudioStreamIndex]->time_base);
 
@@ -165,7 +165,7 @@ namespace Orchestra
     }
     void Decoder::SkipSeconds(const float& seconds) const
     {
-        /*O_ASSERT(seconds <= GetDurationSeconds(), "The duration of audio is lesser than ", seconds, "s.");
+        /*O_ASSERT(seconds <= GetTotalDurationSeconds(), "The duration of audio is lesser than ", seconds, "s.");
 
         const int64_t seekTimestamp = av_rescale_q(m_Frame->pts + seconds * AV_TIME_BASE, AV_TIME_BASE_Q, m_FormatContext->streams[m_AudioStreamIndex]->time_base);
 
@@ -248,14 +248,14 @@ namespace Orchestra
         return m_OutSampleRate;
     }
 
-    int64_t Decoder::GetDuration() const
+    int64_t Decoder::GetTotalDuration() const
     {
         return m_FormatContext->duration;
     }
     //in seconds
-    float Decoder::GetDurationSeconds() const
+    float Decoder::GetTotalDurationSeconds() const
     {
-        return static_cast<float>(GetDuration()) / AV_TIME_BASE;
+        return static_cast<float>(GetTotalDuration()) / AV_TIME_BASE;
     }
 
     int Decoder::GetMaxBufferSize() const

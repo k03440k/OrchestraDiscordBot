@@ -52,8 +52,8 @@ namespace Orchestra
         int GetOutSampleRate() const;
 
         //in seconds
-        int64_t GetDuration() const;
-        float GetDurationSeconds() const;
+        int64_t GetTotalDuration() const;
+        float GetTotalDurationSeconds() const;
 
         int GetMaxBufferSize() const;
 

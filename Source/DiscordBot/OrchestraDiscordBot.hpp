@@ -8,6 +8,9 @@
 
 #include <dpp/dpp.h>
 
+#include <rapidjson/document.h>
+#include <rapidjson/encodings.h>
+
 #include "DiscordBot.hpp"
 #include "Player.hpp"
 
@@ -32,6 +35,7 @@ namespace Orchestra
 
     private:
         void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
+        void CommandCurrentTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
         void CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandStop(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPause(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
@@ -40,13 +44,21 @@ namespace Orchestra
         void CommandTerminate(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
 
     private:
+        using WJSON = rapidjson::GenericDocument<rapidjson::UTF16<>>;
+    private:
+        static std::string GetRawAudioUrlFromJSON(const WJSON& jsonRawAudio);
+        static std::wstring GetRawAudioJsonWStringFromPlaylistJson(const rapidjson::GenericValue<rapidjson::UTF16<>>::Array& playlistArray, const std::string& yt_dlpPath, const size_t& index = 0);
+        static void ReplyWithInfoAboutTrack(const dpp::message_create_t& message, const WJSON& jsonRawAudio, const bool& outputURL = true);
+    private:
         Player m_Player;
 
         dpp::snowflake m_AdminSnowflake;
 
         const std::string m_yt_dlpPath;
 
-        constexpr static std::array<std::string_view, 4> m_SupportedYt_DlpSearchingEngines = {"yt", "ytm", "sc", "bil"};
+        //the fist element is considered to be a default search engine
+        static constexpr std::array<std::string_view, 2> s_SupportedYt_DlpSearchingEngines = {"yt", "sc"};
+        static constexpr std::string_view s_Yt_dlpParameters = "--dump-single-json --flat-playlist";
 
         std::atomic_bool m_IsStopped;
         std::mutex m_PlayMutex;
@@ -54,5 +66,10 @@ namespace Orchestra
         std::atomic_bool m_IsJoined;
         std::condition_variable m_JoinedCondition;
         std::mutex m_JoinMutex;
+
+        std::atomic<std::shared_ptr<std::wstring>> m_CurrentPlayingURL;
+        std::atomic<std::shared_ptr<std::wstring>> m_CurrentPlayingTrackTitle;
+        std::atomic_int m_CurrentPlaylistTrackIndex;
+        std::atomic_int m_CurrentPLaylistSize;
     };
 }

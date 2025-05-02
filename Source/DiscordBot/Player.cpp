@@ -39,11 +39,11 @@ namespace Orchestra
     {
         O_ASSERT(!m_Decoders.empty(), "m_Decoders is empty.");
 
-        m_CurrentDecoderDuration = 0;
+        m_CurrentDecodingDuration = 0;
 
         const Decoder& decoder = m_Decoders[index];
 
-        GE_LOG(Orchestra, Info, "Total duration of audio: ", decoder.GetDurationSeconds(), "s.");
+        GE_LOG(Orchestra, Info, "Total duration of audio: ", decoder.GetTotalDurationSeconds(), "s.");
 
         std::vector<uint8_t> buffer;
         buffer.reserve(m_SentPacketSize);
@@ -114,7 +114,7 @@ namespace Orchestra
 
                     totalSentSize += buffer.size();
                     currentSentDuration = voice->voiceclient->get_secs_remaining();
-                    m_CurrentDecoderDuration += currentSentDuration * sampleRateRatio;
+                    m_CurrentDecodingDuration += currentSentDuration * sampleRateRatio;
 
                     //GE_LOG(Orchestra, Warning, "sampleRateRatio = ", sampleRateRatio, "; totalDuration = ", totalDuration, "; currentSentDuration = ", currentSentDuration);
 
@@ -125,9 +125,9 @@ namespace Orchestra
                 {
                     
                     const float remainingSeconds = voice->voiceclient->get_secs_remaining();
-                    m_CurrentDecoderDuration -= remainingSeconds * prevSampleRateRatio;
-                    GE_LOG(Orchestra, Warning, "prevSampleRateRatio = ", prevSampleRateRatio, "; totalDuration = ", m_CurrentDecoderDuration , "; remainingSeconds = ", remainingSeconds, "; currentTimestamp in secs", static_cast<float>(decoder.GetCurrentTimestamp()) * decoder.GetTimestampToSecondsRatio());
-                    decoder.SkipToSeconds(m_CurrentDecoderDuration);
+                    m_CurrentDecodingDuration -= remainingSeconds * prevSampleRateRatio;
+                    GE_LOG(Orchestra, Warning, "prevSampleRateRatio = ", prevSampleRateRatio, "; totalDuration = ", m_CurrentDecodingDuration , "; remainingSeconds = ", remainingSeconds, "; currentTimestamp in secs", static_cast<float>(decoder.GetCurrentTimestamp()) * decoder.GetTimestampToSecondsRatio());
+                    decoder.SkipToSeconds(m_CurrentDecodingDuration);
                 }
                 
                 buffer.clear();
@@ -147,7 +147,7 @@ namespace Orchestra
                 voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
 
                 totalSentSize += buffer.size();
-                m_CurrentDecoderDuration += voice->voiceclient->get_secs_remaining();
+                m_CurrentDecodingDuration += voice->voiceclient->get_secs_remaining();
 
                 if(m_EnableLogSentPackets)
                     GE_LOG(Orchestra, Info, "Sent ", buffer.size(), " last bytes of data that lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
@@ -157,7 +157,7 @@ namespace Orchestra
         m_IsDecoding = false;
 
         if(m_EnableLogSentPackets)
-            GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", m_CurrentDecoderDuration, '.');
+            GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", m_CurrentDecodingDuration, '.');
     }
 
     void Player::AddDecoder(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
@@ -206,13 +206,13 @@ namespace Orchestra
     void Player::SkipToSeconds(const float& seconds, const size_t& index)
     {
         m_Decoders[index].SkipToSeconds(seconds);
-        m_CurrentDecoderDuration = seconds;
+        m_CurrentDecodingDuration = seconds;
         m_IsSkippingFrames = true;
     }
     void Player::SkipSeconds(const float& seconds, const size_t& index)
     {
-        m_CurrentDecoderDuration += seconds;
-        m_Decoders[index].SkipToSeconds(m_CurrentDecoderDuration);
+        m_CurrentDecodingDuration += seconds;
+        m_Decoders[index].SkipToSeconds(m_CurrentDecodingDuration);
         m_IsSkippingFrames = true;
     }
 
@@ -275,5 +275,17 @@ namespace Orchestra
     size_t Player::GetDecodersCount() const noexcept
     {
         return m_Decoders.size();
+    }
+
+    float Player::GetCurrentDecodingDurationSeconds() const noexcept
+    {
+        return m_CurrentDecodingDuration;
+    }
+    float Player::GetCurrentTotalDurationSeconds() const noexcept
+    {
+        if(m_Decoders.empty())
+            return 0.f;
+        else
+            return m_Decoders[0].GetTotalDurationSeconds();
     }
 }

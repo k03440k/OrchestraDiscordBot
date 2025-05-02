@@ -51,6 +51,10 @@ namespace Orchestra
 
         size_t GetDecodersCount() const noexcept;
 
+        float GetCurrentDecodingDurationSeconds() const noexcept;
+        //if return is 0, then there are no decoders
+        float GetCurrentTotalDurationSeconds() const noexcept;
+
     private:
         void LazyDecodingCheck(const std::chrono::milliseconds& toWait, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10)) const;
 
@@ -71,6 +75,6 @@ namespace Orchestra
         std::condition_variable m_PauseCondition;
         std::mutex m_PauseMutex;
 
-        std::atomic<float> m_CurrentDecoderDuration;
+        std::atomic<float> m_CurrentDecodingDuration;
     };
 }
