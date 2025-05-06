@@ -30,6 +30,8 @@ namespace Orchestra
         m_OutSampleFormat(outSampleFormat),
         m_OutSampleRate(outSampleRate)
     {
+        av_log_set_level(AV_LOG_WARNING);
+
         AVDictionary* options = nullptr;
         //av_dict_set(&options, "buffer_size", "10485760", 0); // 10 MB buffer
         //av_dict_set(&options, "rw_timeout", "50000000", 0);   // 5 seconds timeout

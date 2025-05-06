@@ -43,7 +43,7 @@ int main(int argc, char** argv)
         const auto adminSnowflake = resourcesManager.GetVariable("adminSnowflake").GetValue<unsigned long long>();
         const char paramPrefix = resourcesManager.GetVariable("paramPrefix").GetValue<std::string_view>()[0];
 
-        OrchestraDiscordBot bot{ botToken, yt_dlpPath.data(), prefix, paramPrefix };
+        OrchestraDiscordBot bot{ botToken, StringToWString(yt_dlpPath.data()), prefix, paramPrefix };
 
         bot.SetEnableLogSentPackets(logSentPackets);
         bot.SetEnableLazyDecoding(lazyPacketSend);

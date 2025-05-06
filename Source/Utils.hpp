@@ -1,9 +1,12 @@
 #pragma once
 
-#include <GuelderConsoleLog.hpp>
 #include <string_view>
 #include <memory>
 #include <regex>
+#include <functional>
+#include <chrono>
+
+#include <GuelderConsoleLog.hpp>
 
 #define O_EXCEPTION(userMessage, fullMessage) ::Orchestra::OrchestraException(userMessage, fullMessage)
 
@@ -53,5 +56,17 @@ namespace Orchestra
 
         // Return true if the URL matches the pattern, false otherwise
         return std::regex_match(url, urlPattern);
+    }
+    inline void WaitUntil(const std::function<bool()>& condition, const std::chrono::milliseconds& maxTime, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10))
+    {
+        const auto startedTime = std::chrono::steady_clock::now();
+
+        while(true)
+        {
+            if(condition() || std::chrono::steady_clock::now() - startedTime >= maxTime)
+                break;
+
+            std::this_thread::sleep_for(sleepFor);
+        }
     }
 }
