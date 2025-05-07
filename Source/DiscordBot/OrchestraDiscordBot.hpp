@@ -34,6 +34,7 @@ namespace Orchestra
     private:
         void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
         void CommandCurrentTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
+        void CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
         void CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandStop(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPause(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
@@ -61,5 +62,8 @@ namespace Orchestra
         Yt_DlpManager m_Yt_DlpManager;
         TrackInfo m_CurrentTrack;
         mutable std::mutex m_CurrentTrackMutex;
+
+        //std::vector<std::wstring> m_MusicValues;
+        //mutable std::mutex m_MusicValuesMutex;
     };
 }

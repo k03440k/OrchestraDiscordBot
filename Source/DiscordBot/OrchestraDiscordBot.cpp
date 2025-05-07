@@ -63,10 +63,14 @@ namespace Orchestra
         //make beauty and try optimize all possible things - PARTIALLY
         //add possibility of making bass boost?
         //rename to Orchestra and find an avatar - DONE
+        //add queue command
+        //Queue Roadmap:
+        //I need some vector with music values in order not to change a lot code in CommandPlay
+
         //Playlists Roadmap:
-        //1. Add shuffling
-        //2. Add skipping multiple tracks
-        //3. Add getting to a certain track(almost the same as the 2nd clause)
+        //1. Add shuffling - DONE
+        //2. Add skipping multiple tracks - DONE
+        //3. Add getting to a certain track(almost the same as the 2nd clause) - DONE
 
         //help
         this->AddCommand({ "help",
@@ -96,6 +100,12 @@ namespace Orchestra
             {},
             "Prints info about current track, if it plays."
             });
+        //queue
+        this->AddCommand({ "queue",
+            std::bind(&OrchestraDiscordBot::CommandQueue, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {},
+            "Prints current queue of tracks."
+            });
         //stop
         this->AddCommand({ "stop",
             std::bind(&OrchestraDiscordBot::CommandStop, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
@@ -114,8 +124,9 @@ namespace Orchestra
             {
                 ParamProperties{"secs", Type::Float, "Skips given amount of seconds."},
                 ParamProperties{"tosecs", Type::Float, "If tosecs < 0: it will skip to the beginning of the audio. Skips up to the given time."},
-                ParamProperties{"inindex", Type::Float, "Skips in the given index in the current playing playlist."},
-                ParamProperties{"toindex", Type::Float, "Skips to the given index in the current playing playlist."}
+                ParamProperties{"inindex", Type::Int, "Skips in the given index in the current playing playlist."},
+                ParamProperties{"toindex", Type::Int, "Skips to the given index in the current playing playlist. If toindex is bigger than a playlist size, then it will skip entire playlist."},
+                ParamProperties{"playlist", Type::Bool, "Skips entire playlist."}
             },
             "Skips current track."
             });
@@ -168,7 +179,10 @@ namespace Orchestra
         if(!m_IsJoined && !m_Player.GetDecodersCount())
             message.reply("I'm not even playing anything!");
 
-        std::unique_lock lock{ m_CurrentTrackMutex };
+        if(!m_Yt_DlpManager.IsReady())
+            message.reply("Probably current track is a local file or a raw url. Sorry no info.");
+
+        std::lock_guard lock{ m_CurrentTrackMutex };
 
         std::wstring reply = Logger::Format(L"**", m_CurrentTrack.title, L"**\nCurrent timestamp: ", m_Player.GetCurrentDecodingDurationSeconds(), L" seconds. Total duration: ", m_Player.GetCurrentTotalDurationSeconds(), " seconds.");
 
@@ -179,6 +193,12 @@ namespace Orchestra
 
         message.reply(WStringToString(reply));
     }
+
+    void OrchestraDiscordBot::CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const
+    {
+
+    }
+
     void OrchestraDiscordBot::CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
         if(!value.empty())
@@ -199,8 +219,17 @@ namespace Orchestra
             if(!m_IsJoined)
                 ConnectToMemberVoice(message);
 
+            {
+                //std::lock_guard lockMusicValues{ m_MusicValuesMutex };
+                //m_MusicValues.push_back(StringToWString(value));
+            }
+
+            //as we now have m_Yt_DlpManager
+            std::lock_guard lock{ m_PlayMutex };
+
             m_IsStopped = false;
 
+            //this one will be removed
             //as urls may contain non English letters
             std::wstring wValue = StringToWString(value);
 
@@ -215,7 +244,7 @@ namespace Orchestra
                 GetParamValue(params, "searchengine", playParams.searchEngine);
 
                 const bool foundSearchEngine = std::ranges::find(g_SupportedYt_DlpSearchingEngines, playParams.searchEngine) != g_SupportedYt_DlpSearchingEngines.end();
-                bool isUsingSearch = false;
+                bool isUsingSearch;
 
                 //finding out whether search is being used
                 if(!foundSearchEngine)
@@ -244,10 +273,22 @@ namespace Orchestra
                     m_Yt_DlpManager.FetchSearch(wValue, searchEngine);
                 }
                 else
-                    m_Yt_DlpManager.FetchURL(wValue);
+                {
+                    try
+                    {
+                        m_Yt_DlpManager.FetchURL(wValue);
+                    }
+                    catch(const OrchestraException& e)
+                    {
+                        //probably raw
+                        playParams.isRaw = true;
+                    }
+                }
             }
-            else
+
+            if(playParams.isRaw)
             {
+                std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
                 //taking the value as a raw url
                 m_CurrentTrack.rawURL = value;
                 if(!IsValidURL(m_CurrentTrack.rawURL) && message.msg.author.id != m_AdminSnowflake)
@@ -278,13 +319,11 @@ namespace Orchestra
             if(playParams.repeat < 0)
                 playParams.repeat = std::numeric_limits<int>::max();
 
-            std::lock_guard lock{ m_PlayMutex };
-
             if(!m_IsStopped)
             {
                 GetParamValue(params, "noinfo", playParams.noInfo);
 
-                if(m_Yt_DlpManager.IsPlaylist())
+                if(!playParams.isRaw && m_Yt_DlpManager.IsPlaylist())
                 {
                     GetParamValue(params, "index", playParams.initialIndex);
                     GetParamValue(params, "shuffle", playParams.doShuffle);
@@ -296,7 +335,9 @@ namespace Orchestra
                     if(playParams.doShuffle)
                         tracksIndices.resize(m_Yt_DlpManager.GetPlaylistSize());
                     else
-                        O_ASSERT(playParams.initialIndex < m_Yt_DlpManager.GetPlaylistSize(), "The index ", playParams.initialIndex, " is bigger than the last index ", m_Yt_DlpManager.GetPlaylistSize()-1);
+                        O_ASSERT(playParams.initialIndex < m_Yt_DlpManager.GetPlaylistSize(), "The index ", playParams.initialIndex, " is bigger than the last index ", m_Yt_DlpManager.GetPlaylistSize() - 1);
+
+                    bool skipPlaylist = false;
 
                     for(int i = 0; i < playParams.repeat; ++i)
                     {
@@ -308,51 +349,91 @@ namespace Orchestra
 
                             std::iota(tracksIndices.begin(), tracksIndices.end(), 0);
 
-                            std::ranges::shuffle(tracksIndices, std::default_random_engine{});
+                            std::random_device rd;
+                            std::mt19937 gen{ rd() };
+                            std::ranges::shuffle(tracksIndices, gen);
 
                             index = tracksIndices[0];
                         }
 
-                        for(size_t count = 0; count < m_Yt_DlpManager.GetPlaylistSize() && index < m_Yt_DlpManager.GetPlaylistSize() && !m_IsStopped; ++count, (playParams.doShuffle ? index = tracksIndices[count] : ++index))
+                        for(size_t count = 0; index < m_Yt_DlpManager.GetPlaylistSize() && !m_IsStopped;)
                         {
-                            m_CurrentTrackMutex.lock();
+                            {
+                                std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
 
-                            m_CurrentTrack = m_Yt_DlpManager.GetTrackInfo(index);
-                            m_CurrentTrack.playlistIndex = index;
+                                m_CurrentTrack = m_Yt_DlpManager.GetTrackInfo(index);
+                                m_CurrentTrack.playlistIndex = index;
 
-                            GE_LOG(Orchestra, Info, "Received raw URL to audio: ", m_CurrentTrack.rawURL);
+                                GE_LOG(Orchestra, Info, "Received raw URL to audio: ", m_CurrentTrack.rawURL);
 
-                            if(!playParams.noInfo)
-                                ReplyWithInfoAboutTrack(message, m_CurrentTrack);
+                                if(!playParams.noInfo)
+                                    ReplyWithInfoAboutTrack(message, m_CurrentTrack);
 
-                            m_Player.AddDecoderBack(m_CurrentTrack.rawURL, Decoder::DEFAULT_SAMPLE_RATE * playParams.speed);
-
-                            m_CurrentTrackMutex.unlock();
+                                m_Player.AddDecoderBack(m_CurrentTrack.rawURL, Decoder::DEFAULT_SAMPLE_RATE * playParams.speed);
+                            }
 
                             //sending
                             m_Player.DecodeAndSendAudio(voice);
 
                             if(m_Player.GetDecodersCount())
                                 m_Player.DeleteAudio();
+
+                            {
+                                std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
+                                //then it has been skipped to some index
+                                if(m_CurrentTrack.playlistIndex != index)
+                                {
+                                    skipPlaylist = m_CurrentTrack.playlistIndex >= m_Yt_DlpManager.GetPlaylistSize();
+                                    //then skip the entire playlist
+                                    if(skipPlaylist)
+                                        break;
+
+                                    index = m_CurrentTrack.playlistIndex;
+                                    count = std::ranges::find(tracksIndices, index) - tracksIndices.begin();
+                                }
+                                else
+                                {
+                                    count++;
+
+                                    //setting the next index
+                                    if(playParams.doShuffle)
+                                        index = tracksIndices[count];
+                                    else
+                                        index++;
+                                }
+                            }
+
+                            //we have reached the end of shuffled stuff
+                            if(playParams.doShuffle && index == tracksIndices[tracksIndices.size() - 1])
+                                break;
                         }
+
+                        if(skipPlaylist)
+                            break;
                     }
                 }
                 else
                 {
-                    m_CurrentTrackMutex.lock();
-                    m_CurrentTrack = m_Yt_DlpManager.GetTrackInfo(0, false);
+                    {
+                        std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
 
-                    GE_LOG(Orchestra, Info, "Received raw URL to audio: ", m_CurrentTrack.rawURL);
-                    m_CurrentTrackMutex.unlock();
+                        if(!playParams.isRaw)
+                        {
+                            m_CurrentTrack = m_Yt_DlpManager.GetTrackInfo(0, false);
 
-                    if(!playParams.noInfo)
-                        ReplyWithInfoAboutTrack(message, m_CurrentTrack);
+                            if(!playParams.noInfo)
+                                ReplyWithInfoAboutTrack(message, m_CurrentTrack);
+                        }
+
+                        GE_LOG(Orchestra, Info, "Received raw URL to audio: ", m_CurrentTrack.rawURL);
+                    }
 
                     for(int i = 0; i < playParams.repeat && !m_IsStopped; ++i)
                     {
-                        m_CurrentTrackMutex.lock();
-                        m_Player.AddDecoderBack(m_CurrentTrack.rawURL, Decoder::DEFAULT_SAMPLE_RATE * playParams.speed);
-                        m_CurrentTrackMutex.unlock();
+                        {
+                            std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
+                            m_Player.AddDecoderBack(m_CurrentTrack.rawURL, Decoder::DEFAULT_SAMPLE_RATE * playParams.speed);
+                        }
 
                         m_Player.DecodeAndSendAudio(voice);
 
@@ -387,9 +468,7 @@ namespace Orchestra
     }
     void OrchestraDiscordBot::CommandStop(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
-        dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
-
-        O_ASSERT(v && v->voiceclient && v->voiceclient->is_ready(), "Failed to stop.");
+        const dpp::voiceconn* v = IsVoiceConnectionReady(message.msg.guild_id);
 
         m_Player.Stop();
         m_IsStopped = true;
@@ -401,9 +480,7 @@ namespace Orchestra
     {
         if(m_IsJoined)
         {
-            dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
-
-            O_ASSERT(v && v->voiceclient && v->voiceclient->is_ready(), "Failed to pause.");
+            const dpp::voiceconn* v = IsVoiceConnectionReady(message.msg.guild_id);
 
             m_Player.Pause(!m_Player.GetIsPaused());
             v->voiceclient->pause_audio(m_Player.GetIsPaused());
@@ -424,24 +501,49 @@ namespace Orchestra
         if(tosecs <= 0.f)
             GetParamValue(params, "secs", secs);
 
-        int toindex = 0;
-        GetParamValue(params, "toindex", toindex);
+        bool skipPlaylist = false;
+        GetParamValue(params, "playlist", skipPlaylist);
+
+        int toindex = -1;
+        if(!skipPlaylist)
+            GetParamValue(params, "toindex", toindex);
         int inindex = 0;
-        if(toindex <= 0)
+        if(!skipPlaylist && toindex <= 0)
             GetParamValue(params, "inindex", inindex);
 
-        dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
+        const dpp::voiceconn* v = IsVoiceConnectionReady(message.msg.guild_id);
 
-        O_ASSERT(v && v->voiceclient && v->voiceclient->is_ready(), "Failed to skip.");
-
-        //FUCK
-        //if(toindex > 0 || inindex != 0)
+        const bool isToIndexValid = toindex >= 0;
+        bool isInIndexValid;
         {
-
+            std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
+            isInIndexValid = inindex != 0 && inindex + static_cast<int>(m_CurrentTrack.playlistIndex) >= 0 && inindex + m_CurrentTrack.playlistIndex < m_Yt_DlpManager.GetPlaylistSize();
         }
-        //else
+
+        if(m_Yt_DlpManager.IsPlaylist() && (isToIndexValid || isInIndexValid || skipPlaylist))
         {
-            if(tosecs == 0.f && secs == 0.f)
+            {
+                std::lock_guard lockCurrentTrack{ m_CurrentTrackMutex };
+
+                if(!skipPlaylist)
+                {
+                    if(isToIndexValid)
+                        m_CurrentTrack.playlistIndex = toindex;
+                    else
+                        m_CurrentTrack.playlistIndex += inindex;
+                }
+                else
+                    m_CurrentTrack.playlistIndex = m_Yt_DlpManager.GetPlaylistSize();
+            }
+
+            v->voiceclient->stop_audio();
+            m_Player.Skip();
+        }
+        else
+        {
+            const bool doSkipOneTrack = tosecs == 0.f && secs == 0.f;
+
+            if(doSkipOneTrack)
             {
                 v->voiceclient->stop_audio();
                 m_Player.Skip();
@@ -509,7 +611,7 @@ namespace Orchestra
         dpp::voiceconn* voice = get_shard(0)->get_voice(guildSnowflake);
 
         if(!voice || !voice->voiceclient || !voice->voiceclient->is_ready())
-            O_THROW("Failed to connect to a voice channel in a guild with id ", guildSnowflake);
+            O_THROW("Failed to establish connection to a voice channel in a guild with id ", guildSnowflake);
 
         return voice;
     }

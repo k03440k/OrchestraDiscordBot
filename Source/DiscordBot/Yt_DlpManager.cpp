@@ -17,8 +17,8 @@ namespace Orchestra
     {
         switch(searchEngine)
         {
-            case SearchEngine::YouTube: return g_SupportedYt_DlpSearchingEngines[0];
-            case SearchEngine::SoundCloud: return g_SupportedYt_DlpSearchingEngines[1];
+        case SearchEngine::YouTube: return g_SupportedYt_DlpSearchingEngines[0];
+        case SearchEngine::SoundCloud: return g_SupportedYt_DlpSearchingEngines[1];
         }
 
         O_THROW("There is no such search engine ", static_cast<uint8_t>(searchEngine));
@@ -27,8 +27,8 @@ namespace Orchestra
     {
         switch(searchEngine)
         {
-            case SearchEngine::YouTube: return g_WSupportedYt_DlpSearchingEngines[0];
-            case SearchEngine::SoundCloud: return g_WSupportedYt_DlpSearchingEngines[1];
+        case SearchEngine::YouTube: return g_WSupportedYt_DlpSearchingEngines[0];
+        case SearchEngine::SoundCloud: return g_WSupportedYt_DlpSearchingEngines[1];
         }
 
         O_THROW("There is no such search engine ", static_cast<uint8_t>(searchEngine));
@@ -45,7 +45,7 @@ namespace Orchestra
     }
 
     Yt_DlpManager::Yt_DlpManager(const std::wstring& yt_dlpPath)
-        : m_Yt_dlpPath(yt_dlpPath), m_IsPlaylist(false), m_PlaylistSize(0) {}
+        : m_Yt_dlpPath(yt_dlpPath), m_JSONValue(nullptr), m_IsPlaylist(false), m_PlaylistSize(0) {}
     Yt_DlpManager::Yt_DlpManager(const std::wstring& yt_dlpPath, const std::wstring_view& URL)
         : Yt_DlpManager(yt_dlpPath)
     {
@@ -63,7 +63,9 @@ namespace Orchestra
 
         m_JSON = RetrieveJSONFromYt_dlp(m_Yt_dlpPath, input, true, searchEngine);
         //very freaking slow. MUST BE CHANGED
-        m_JSON.CopyFrom(*(m_JSON.FindMember(L"entries")->value.GetArray().Begin()), m_JSON.GetAllocator());
+        //m_JSON.CopyFrom(*(m_JSON.FindMember(L"entries")->value.GetArray().Begin()), m_JSON.GetAllocator());
+
+        m_JSONValue = &*m_JSON.FindMember(L"entries")->value.GetArray().Begin();
 
         m_IsPlaylist = false;
         m_PlaylistSize = 1;
@@ -82,10 +84,15 @@ namespace Orchestra
             if(m_IsPlaylist)
                 m_PlaylistSize = itEntries->value.GetArray().Size();
             else
+            {
                 m_PlaylistSize = 1;
+                O_ASSERT(m_JSON.FindMember(L"formats") != m_JSON.MemberEnd() && m_JSON.FindMember(L"formats")->value.IsArray() && m_JSON.FindMember(L"formats")->value.GetArray().Size() != 1, "The url is raw.");
+            }
+
+            m_JSONValue = &m_JSON;
         }
     }
-    TrackInfo Yt_DlpManager::GetTrackInfo(const size_t& index, const bool& lookForRawURL)
+    TrackInfo Yt_DlpManager::GetTrackInfo(const size_t& index, const bool& lookForRawURL) const
     {
         if(IsReady())
         {
@@ -95,7 +102,7 @@ namespace Orchestra
 
                 O_ASSERT(index < m_PlaylistSize, "The input index ", index, " is bigger than the last element of the playlist with index ", m_PlaylistSize - 1);
 
-                const auto itEntries = m_JSON.FindMember(L"entries");
+                const auto itEntries = m_JSONValue->FindMember(L"entries");
                 auto playlist = itEntries->value.GetArray();
 
                 auto itTrack = (playlist.Begin() + index);
@@ -110,7 +117,7 @@ namespace Orchestra
                 return trackInfo;
             }
             else
-                return RetrieveFullTrackInfo(m_JSON, false);
+                return RetrieveFullTrackInfo(*m_JSONValue, false);
         }
 
         O_THROW("Yt-dlpManager does not have a proper JSON. IsReady() == false.");
@@ -118,6 +125,7 @@ namespace Orchestra
 
     bool Yt_DlpManager::IsReady() const { return !m_JSON.ObjectEmpty() && m_PlaylistSize > 0; }
     bool Yt_DlpManager::IsPlaylist() const noexcept { return m_IsPlaylist; }
+    //bool Yt_DlpManager::IsRaw() const noexcept { return m_IsRaw; }
     size_t Yt_DlpManager::GetPlaylistSize() const noexcept { return m_PlaylistSize; }
 
     const std::wstring_view& Yt_DlpManager::GetYt_dlpPath() const { return m_Yt_dlpPath; }

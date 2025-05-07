@@ -65,11 +65,12 @@ namespace Orchestra
         void FetchURL(const std::wstring_view& url);
 
         //may call yt-dlp
-        TrackInfo GetTrackInfo(const size_t& index = 0, const bool& lookForRawURL = true);
+        TrackInfo GetTrackInfo(const size_t& index = 0, const bool& lookForRawURL = true) const;
         //retrieve basic info for all tracks
 
         bool IsReady() const;
         bool IsPlaylist() const noexcept;
+        //bool IsRaw() const noexcept;
         size_t GetPlaylistSize() const noexcept;
 
         const std::wstring_view& GetYt_dlpPath() const;
@@ -86,8 +87,10 @@ namespace Orchestra
         std::wstring m_Yt_dlpPath;
 
         WJSON m_JSON;
+        WJSON::ValueType* m_JSONValue;
 
         bool m_IsPlaylist;
+        //bool m_IsRaw;
         size_t m_PlaylistSize;
 
         static constexpr std::array<std::string_view, 2> s_SupportedYt_DlpSearchingEngines = { "yt", "sc" };
