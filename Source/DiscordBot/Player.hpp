@@ -55,6 +55,8 @@ namespace Orchestra
         //if return is 0, then there are no decoders
         float GetCurrentTotalDurationSeconds() const noexcept;
 
+        bool HasDecoderFinished(const size_t& index = 0) const;
+
     private:
         void LazyDecodingCheck(const std::chrono::milliseconds& toWait, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10)) const;
 

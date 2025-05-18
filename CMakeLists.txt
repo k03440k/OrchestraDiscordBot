@@ -18,6 +18,7 @@ set(PROJECT_HEADERS
 	"Source/DiscordBot/OrchestraDiscordBot.hpp"
 	"Source/DiscordBot/Player.hpp"
 	"Source/DiscordBot/Yt_DlpManager.hpp"
+	"Source/DiscordBot/TracksQueue.hpp"
 
 	"Source/Workers/Worker.hpp"
 	"Source/Workers/WorkersManager.hpp"
@@ -33,6 +34,7 @@ set(PROJECT_SOURCES
 	"Source/DiscordBot/OrchestraDiscordBot.cpp"
 	"Source/DiscordBot/Player.cpp"
 	"Source/DiscordBot/Yt_DlpManager.cpp"
+	"Source/DiscordBot/TracksQueue.cpp"
 
 	"Source/main.cpp"
 	)

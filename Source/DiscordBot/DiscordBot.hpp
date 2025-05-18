@@ -14,6 +14,9 @@ namespace Orchestra
 {
     GE_DECLARE_LOG_CATEGORY_DEFAULT_COLORS_CONSTEXPR(DPP, All, true, false, true);
 
+    constexpr size_t DPP_MAX_MESSAGE_LENGTH = 2000;
+    constexpr size_t DPP_MAX_EMBED_SIZE = 25;
+
     class DiscordBot : protected dpp::cluster
     {
     public:

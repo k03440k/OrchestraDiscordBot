@@ -288,4 +288,9 @@ namespace Orchestra
         else
             return m_Decoders[0].GetTotalDurationSeconds();
     }
+
+    bool Player::HasDecoderFinished(const size_t& index) const
+    {
+        return !m_Decoders[index].AreThereFramesToProcess();
+    }
 }

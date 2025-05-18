@@ -23,21 +23,32 @@ namespace Orchestra
     {
         const auto itFound = JSON.FindMember(item.data());
         if constexpr(std::is_same_v<typename Encoding::Ch, char>)
+        {
             O_ASSERT(itFound != JSON.MemberEnd(), "Failed to find member ", item);
+            O_ASSERT(itFound->value.template Is<T>(), "The type of ", item, " is not ", typeid(T).name());
+        }
         else
+        {
             O_ASSERT(itFound != JSON.MemberEnd(), "Failed to find member ", GuelderConsoleLog::WStringToString(item));
+            O_ASSERT(itFound->value.template Is<T>(), "The type of ", GuelderConsoleLog::WStringToString(item), " is not ", typeid(T).name());
+        }
+
 
         return itFound->value.template Get<T>();
     }
 
     struct TrackInfo
     {
-        std::string URL;
+        std::wstring URL;
         std::string rawURL;
         std::wstring title;
         //seconds
         float duration;
         size_t playlistIndex;
+        size_t repeat;
+        float speed;
+
+        bool HasURL() const;
     };
 
     enum class SearchEngine : uint8_t
@@ -55,8 +66,6 @@ namespace Orchestra
     public:
         Yt_DlpManager() = default;
         Yt_DlpManager(const std::wstring& yt_dlpPath);
-        Yt_DlpManager(const std::wstring& yt_dlpPath, const std::wstring_view& URL);
-        Yt_DlpManager(const std::wstring& yt_dlpPath, const std::wstring_view& input, const SearchEngine& searchEngine = SearchEngine::YouTube);
         ~Yt_DlpManager() = default;
 
         //calls yt-dlp
@@ -68,6 +77,8 @@ namespace Orchestra
         TrackInfo GetTrackInfo(const size_t& index = 0, const bool& lookForRawURL = true) const;
         //retrieve basic info for all tracks
 
+        void Reset();
+
         bool IsReady() const;
         bool IsPlaylist() const noexcept;
         //bool IsRaw() const noexcept;
@@ -76,6 +87,9 @@ namespace Orchestra
         const std::wstring_view& GetYt_dlpPath() const;
         const WJSON& GetJSON() const;
         const WJSON::ConstArray& GetPlaylist() const;
+    public:
+        std::string GetRawURLFromURL(const std::wstring& url) const;
+        std::string GetRawURLFromSearch(const std::wstring& input, const SearchEngine& searchEngine) const;
     private:
         //gets just URL to youtube, title, duration. Relatively fast
         static TrackInfo RetrieveBasicTrackInfo(const WGenericValue& JSON, const bool& isPlaylist = false);
