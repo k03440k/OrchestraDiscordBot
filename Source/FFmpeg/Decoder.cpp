@@ -156,24 +156,10 @@ namespace Orchestra
     }
     void Decoder::SkipToSeconds(const float& seconds) const
     {
-        /*O_ASSERT(seconds <= GetTotalDurationSeconds(), "The duration of audio is lesser than ", seconds, "s.");
-
-        const int64_t seekTimestamp = av_rescale_q(seconds * AV_TIME_BASE, AV_TIME_BASE_Q, m_FormatContext->streams[m_AudioStreamIndex]->time_base);
-
-        O_ASSERT(avformat_seek_file(m_FormatContext.get(), m_AudioStreamIndex, std::numeric_limits<int>::min(), seekTimestamp, std::numeric_limits<int>::max(), AVSEEK_FLAG_BACKWARD) >= 0, "Failed to skip ", seconds, "s.");
-
-        avcodec_flush_buffers(m_CodecContext.get());*/
         SkipToTimestamp(seconds / GetTimestampToSecondsRatio());
     }
     void Decoder::SkipSeconds(const float& seconds) const
     {
-        /*O_ASSERT(seconds <= GetTotalDurationSeconds(), "The duration of audio is lesser than ", seconds, "s.");
-
-        const int64_t seekTimestamp = av_rescale_q(m_Frame->pts + seconds * AV_TIME_BASE, AV_TIME_BASE_Q, m_FormatContext->streams[m_AudioStreamIndex]->time_base);
-
-        O_ASSERT(avformat_seek_file(m_FormatContext.get(), m_AudioStreamIndex, std::numeric_limits<int>::min(), seekTimestamp, std::numeric_limits<int>::max(), AVSEEK_FLAG_BACKWARD) >= 0, "Failed to skip ", seconds, "s.");
-
-        avcodec_flush_buffers(m_CodecContext.get());*/
         SkipTimestamp(seconds / GetTimestampToSecondsRatio());
     }
 
@@ -273,6 +259,16 @@ namespace Orchestra
     double Decoder::GetTimestampToSecondsRatio() const
     {
         return av_q2d(GetStream()->time_base);
+    }
+
+    std::string Decoder::GetTitle() const
+    {
+        const AVDictionaryEntry* tag = av_dict_get(m_FormatContext->metadata, "title", nullptr, 0);
+
+        if(tag)
+            return tag->value;
+        else
+            return std::string{};
     }
 }
 //private

@@ -4,7 +4,6 @@
 #include <mutex>
 #include <future>
 #include <chrono>
-#include <random>
 #include <string_view>
 
 #include <dpp/dpp.h>
@@ -65,7 +64,7 @@ namespace Orchestra
         {
             using namespace GuelderConsoleLog;
 
-            std::string reply = Logger::Format(std::forward<Args>(args)...);
+            const std::string reply = Logger::Format(std::forward<Args>(args)...);
 
             if(reply.size() > DPP_MAX_MESSAGE_LENGTH)
             {

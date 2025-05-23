@@ -281,12 +281,17 @@ namespace Orchestra
     {
         return m_CurrentDecodingDuration;
     }
-    float Player::GetCurrentTotalDurationSeconds() const noexcept
+    float Player::GetTotalDurationSeconds(const size_t& index) const
     {
         if(m_Decoders.empty())
             return 0.f;
         else
-            return m_Decoders[0].GetTotalDurationSeconds();
+            return m_Decoders[index].GetTotalDurationSeconds();
+    }
+
+    std::string Player::GetTitle(const size_t& index) const
+    {
+        return m_Decoders[index].GetTitle();
     }
 
     bool Player::HasDecoderFinished(const size_t& index) const

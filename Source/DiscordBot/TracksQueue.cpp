@@ -205,6 +205,15 @@ namespace Orchestra
     const std::vector<PlaylistInfo>& TracksQueue::GetPlaylistInfos() const { return m_PlaylistInfos; }
     size_t TracksQueue::GetSize() const { return m_Tracks.size(); }
 
+    void TracksQueue::SetTrackTitle(const size_t& index, const std::wstring& title)
+    {
+        m_Tracks[index].title = title;
+    }
+    void TracksQueue::SetTrackDuration(const size_t& index, const float& duration)
+    {
+        m_Tracks[index].duration = duration;
+    }
+
     size_t TracksQueue::GetLastIndexWithCheck() const
     {
         if(m_Tracks.empty())

@@ -303,7 +303,7 @@ namespace Orchestra
             for(size_t i = 0; i < m_TracksQueue.GetTrackInfos().size(); i += DPP_MAX_EMBED_SIZE)
             {
                 dpp::embed embed;
-                embed.set_title("Track Queue");
+                embed.set_title(Logger::Format("Track Queue. The size: ", m_TracksQueue.GetSize()));
                 embed.set_color(0x5865F2); // Optional color
 
                 for(size_t j = i; j < std::min(i + DPP_MAX_EMBED_SIZE, m_TracksQueue.GetTrackInfos().size()); ++j)
@@ -322,7 +322,7 @@ namespace Orchestra
                     if(repeat > 1)
                         fieldValue += Logger::Format("Repeat count: ", repeat, ".\n");
                     if(showURLs)
-                        fieldValue += Logger::Format("URL: ", WStringToString(URL), "\n");
+                        fieldValue += Logger::Format("URL: ", (URL.empty() ? rawURL : WStringToString(URL)), "\n");
 
                     embed.add_field(fieldTitle, fieldValue, false);
                 }
@@ -404,12 +404,36 @@ namespace Orchestra
 
                             GE_LOG(Orchestra, Info, "Received raw URL to a track: ", currentTrackInfo->rawURL);
 
-                            if(!playParams.noInfo)
-                                ReplyWithInfoAboutTrack(message, *currentTrackInfo);
-
                             playParams.speed = currentTrackInfo->speed;
 
                             m_Player.AddDecoderBack(currentTrackInfo->rawURL, Decoder::DEFAULT_SAMPLE_RATE * playParams.speed);
+
+                            //printing info about the track
+                            if(!playParams.noInfo)
+                            {
+                                if(currentTrackInfo->title.empty())
+                                {
+                                    //it is raw, trying to get title with ffmpeg
+                                    std::wstring title;
+                                    std::string titleTmp = m_Player.GetTitle(0);
+
+                                    if(!titleTmp.empty())
+                                        title = StringToWString(titleTmp);
+
+                                    if(!title.empty())
+                                        m_TracksQueue.SetTrackTitle(m_CurrentTrackIndex, title);
+                                }
+                                if(currentTrackInfo->duration == 0.f)
+                                {
+                                    //it is raw, trying to get duration with ffmpeg
+                                    float duration;
+                                    duration = m_Player.GetTotalDurationSeconds(0);
+                                    if(duration != 0.f)
+                                        m_TracksQueue.SetTrackDuration(0, duration);
+                                }
+
+                                ReplyWithInfoAboutTrack(message, *currentTrackInfo);
+                            }
 
                             for(size_t j = 0; j < m_TracksQueue.GetPlaylistInfos().size(); j++)
                             {
@@ -478,11 +502,13 @@ namespace Orchestra
                     }
                     catch(const OrchestraException& e)
                     {
+                        ++m_CurrentTrackIndex;
                         GE_LOG(Orchestra, Warning, "Exception occured, skipping the track. Exception: ", e.GetFullMessage());
                         Reply(message, "Exception just occurred, skipping the track! Exception: ", e.GetUserMessage());
                     }
                     catch(const std::exception& e)
                     {
+                        ++m_CurrentTrackIndex;
                         GE_LOG(Orchestra, Warning, "Exception occured, skipping the track. Exception: ", e.what());
                         Reply(message, "Unknown exception just occurred with the track, skipping!");
                     }
@@ -781,7 +807,7 @@ namespace Orchestra
     {
         message.reply(reply);
     }
-    
+
     void OrchestraDiscordBot::SendEmbedsSequentially(const dpp::message_create_t& event, const std::vector<dpp::embed>& embeds, size_t index)
     {
         if(index >= embeds.size()) return;
@@ -818,7 +844,6 @@ namespace Orchestra
 
         PlayParams playParams{};
 
-        //this one will be removed
         //as urls may contain non English letters
         std::wstring wValue = StringToWString(value);
 
@@ -886,16 +911,26 @@ namespace Orchestra
                 }
             }
         }
+        else
+            m_TracksQueue.FetchRaw(value);
 
         return playParams;
     }
 
     void OrchestraDiscordBot::ReplyWithInfoAboutTrack(const dpp::message_create_t& message, const TrackInfo& trackInfo, const bool& outputURL)
     {
-        std::wstring description = Logger::Format(L"**", trackInfo.title, L"** is going to be played for **", trackInfo.duration, L"** seconds.");
+        std::wstring description;
+
+        if(trackInfo.title.empty())
+            description = Logger::Format(L"The name of the track is unknown.");
+        else
+            description = Logger::Format(L"**", trackInfo.title, L"**");
+
+        if(trackInfo.duration > 0.f)
+            description += Logger::Format(L" The track's duration: **", trackInfo.duration, L"** seconds.");
 
         if(outputURL)
-            description += Logger::Format(L"\nURL: ", trackInfo.URL);
+            description += Logger::Format(L"\nURL: ", (trackInfo.URL.empty() ? StringToWString(trackInfo.rawURL) : trackInfo.URL));
 
         Reply(message, WStringToString(description));
     }

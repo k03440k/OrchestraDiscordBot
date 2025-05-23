@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -50,8 +51,7 @@ namespace Orchestra
 
         AVSampleFormat GetOutSampleFormat() const;
         int GetOutSampleRate() const;
-
-        //in seconds
+        
         int64_t GetTotalDuration() const;
         float GetTotalDurationSeconds() const;
 
@@ -61,12 +61,13 @@ namespace Orchestra
 
         double GetTimestampToSecondsRatio() const;
 
+        //metadata
+        std::string GetTitle() const;
     private:
         static void CopySwrParams(SwrContext* from, SwrContext* to);
         static SwrContext* DuplicateSwrContext(SwrContext* from);
 
         AVStream* GetStream() const;
-
     private:
         FFmpegUniquePtrManager::UniquePtrAVFormatContext m_FormatContext;
         FFmpegUniquePtrManager::UniquePtrAVCodecContext m_CodecContext;

@@ -53,7 +53,9 @@ namespace Orchestra
 
         float GetCurrentDecodingDurationSeconds() const noexcept;
         //if return is 0, then there are no decoders
-        float GetCurrentTotalDurationSeconds() const noexcept;
+        float GetTotalDurationSeconds(const size_t& index) const;
+
+        std::string GetTitle(const size_t& index) const;
 
         bool HasDecoderFinished(const size_t& index = 0) const;
 

@@ -43,6 +43,9 @@ namespace Orchestra
         const TrackInfo& GetTrackInfo(const size_t& index = 0) const;
         const std::vector<PlaylistInfo>& GetPlaylistInfos() const;
         size_t GetSize() const;
+
+        void SetTrackTitle(const size_t& index, const std::wstring& title);
+        void SetTrackDuration(const size_t& index, const float& duration);
     private:
         size_t GetLastIndexWithCheck() const;
         size_t GetLastIndex() const;
