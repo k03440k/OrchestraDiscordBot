@@ -1,4 +1,4 @@
-# OrchestraDiscordBot
+# OrchestraDiscordBot V0.8.5
 
 ![alt text](./Resources/Orchestra.jpg)
 
