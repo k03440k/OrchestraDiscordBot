@@ -14,6 +14,9 @@ namespace Orchestra
         size_t beginIndex;
         size_t endIndex;
         size_t repeat;
+        size_t index;
+        //TODO: title use
+        std::wstring title;
     };
     class TracksQueue
     {
@@ -51,6 +54,7 @@ namespace Orchestra
         size_t GetLastIndex() const;
     private:
         static size_t s_CurrentUniqueTrackIndex;
+        static size_t s_CurrentUniquePlaylistIndex;
 
         Yt_DlpManager m_Yt_DlpManager;
         std::vector<TrackInfo> m_Tracks;

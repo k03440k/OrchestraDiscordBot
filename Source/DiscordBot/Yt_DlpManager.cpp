@@ -57,10 +57,23 @@ namespace Orchestra
         using namespace GuelderConsoleLog;
 
         m_JSON = RetrieveJSONFromYt_dlp(m_Yt_dlpPath, input, true, searchEngine);
-        //very freaking slow. MUST BE CHANGED
-        //m_JSON.CopyFrom(*(m_JSON.FindMember(L"entries")->value.GetArray().Begin()), m_JSON.GetAllocator());
 
-        m_JSONValue = &*m_JSON.FindMember(L"entries")->value.GetArray().Begin();
+        O_ASSERT(m_JSON.IsObject(), "m_JSON is not an object.");
+
+        auto itEntries = m_JSON.FindMember(L"entries");
+
+        O_ASSERT(itEntries != m_JSON.MemberEnd(), "Failed to find entries.");
+        O_ASSERT(itEntries->value.IsArray(), "itEntries is not an array.");
+        O_ASSERT(itEntries->value.GetArray().Size() > 0, "The size of itEntries is 0.");
+        O_ASSERT(itEntries->value.GetArray().Begin()->IsObject(), "The first element of itEntries is not an object.");
+
+        m_JSONValue = &*itEntries->value.GetArray().Begin();
+
+        if(!m_JSONValue)
+        {
+            Reset();
+            O_THROW("Failed to retrieve info about track.");
+        }
 
         m_IsPlaylist = false;
         m_PlaylistSize = 1;
@@ -73,6 +86,8 @@ namespace Orchestra
 
         //playlist
         {
+            O_ASSERT(m_JSON.IsObject(), "m_JSON is not an object.");
+
             const auto itEntries = m_JSON.FindMember(L"entries");
             m_IsPlaylist = itEntries != m_JSON.MemberEnd() && itEntries->value.IsArray();
 
@@ -200,6 +215,7 @@ namespace Orchestra
     TrackInfo Yt_DlpManager::RetrieveFullTrackInfo(const WGenericValue& rawJSON, const bool& isPlaylist)
     {
         //raw URL
+        
         const auto formats = GetFromJSON<WJSON::ConstArray>(rawJSON, L"formats");
 
         for(const auto& format : formats)

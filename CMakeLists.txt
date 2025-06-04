@@ -47,7 +47,11 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES
 	${PROJECT_CODE}
 )
 
-add_executable(${PROJECT_NAME} ${PROJECT_CODE})
+if(MSVC)
+    set(APP_ICON_RESOURCE_WINDOWS "${CMAKE_CURRENT_SOURCE_DIR}/Resources/resources.rc")
+endif()
+
+add_executable(${PROJECT_NAME} ${PROJECT_CODE} ${APP_ICON_RESOURCE_WINDOWS})
 
 #TODO: this
 if(DEFINED VCPKG_ROOT)

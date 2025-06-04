@@ -23,18 +23,16 @@ namespace Orchestra
         //setters, getters
     public:
         void SetEnableLogSentPackets(const bool& enable);
-        void SetEnableLazyDecoding(const bool& enable);
         void SetSentPacketSize(const uint32_t& size);
         void SetAdminSnowflake(const dpp::snowflake& id);
 
         bool GetEnableLogSentPackets() const noexcept;
-        bool GetEnableLazyDecoding() const noexcept;
         uint32_t GetSentPacketSize() const noexcept;
         dpp::snowflake GetAdminSnowflake() const noexcept;
 
     private:
         void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
-        void CommandCurrentTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
+        void CommandCurrentTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandShuffle(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
@@ -44,18 +42,7 @@ namespace Orchestra
         void CommandSkip(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandLeave(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandTerminate(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
-    private:
-        struct PlayParams
-        {
-            float speed = 1.f;
-            int repeat = 1;
-            bool doSearch = false;
-            std::string searchEngine;
-            bool noInfo = false;
-            bool isRaw = false;
-            int initialIndex = 0;
-            bool doShuffle = false;
-        };
+
     private:
         static void ConnectToMemberVoice(const dpp::message_create_t& message);
 
@@ -81,9 +68,11 @@ namespace Orchestra
         void WaitUntilJoined(const std::chrono::milliseconds& delay);
         dpp::voiceconn* IsVoiceConnectionReady(const dpp::snowflake& guildSnowflake);
 
-        PlayParams AddTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void AddTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+
     private:
-        static void ReplyWithInfoAboutTrack(const dpp::message_create_t& message, const TrackInfo& trackInfo, const bool& outputURL = true);
+        void ReplyWithInfoAboutTrack(const dpp::message_create_t& message, const TrackInfo& trackInfo, const bool& outputURL = true, const bool& printCurrentTimestamp = false);
+
     private:
         Player m_Player;
 
@@ -98,8 +87,6 @@ namespace Orchestra
 
         TracksQueue m_TracksQueue;
         std::atomic_uint32_t m_CurrentTrackIndex;
-        //yes it is a crutch
-        std::atomic_bool m_IncrementCurrentTrackIndex;
         mutable std::mutex m_TracksQueueMutex;
     };
 }

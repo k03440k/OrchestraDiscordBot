@@ -39,14 +39,12 @@ int main(int argc, char** argv)
         const auto& yt_dlpPath = resourcesManager.GetVariable("yt_dlp").GetValue<std::string_view>();
         const auto sentPacketsSize = resourcesManager.GetVariable("sentPacketsSize").GetValue<unsigned int>();
         const auto logSentPackets = resourcesManager.GetVariable("enableLoggingSentPackets").GetValue<bool>();
-        const auto lazyPacketSend = resourcesManager.GetVariable("enableLazyPacketsSending").GetValue<bool>();
         const auto adminSnowflake = resourcesManager.GetVariable("adminSnowflake").GetValue<unsigned long long>();
         const char paramPrefix = resourcesManager.GetVariable("paramPrefix").GetValue<std::string_view>()[0];
 
         OrchestraDiscordBot bot{ botToken, StringToWString(yt_dlpPath.data()), prefix, paramPrefix };
 
         bot.SetEnableLogSentPackets(logSentPackets);
-        bot.SetEnableLazyDecoding(lazyPacketSend);
         bot.SetSentPacketSize(sentPacketsSize);
         bot.SetAdminSnowflake(adminSnowflake);
 

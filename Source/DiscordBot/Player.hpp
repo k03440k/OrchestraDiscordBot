@@ -20,8 +20,8 @@ namespace Orchestra
         //blocks current thread
         void DecodeAndSendAudio(const dpp::voiceconn* voice, const size_t& index = 0);
 
-        void AddDecoder(const std::string_view& url, const uint32_t& sampleRate = 48000, const size_t& pos = 0);
-        void AddDecoderBack(const std::string_view& url, const uint32_t& sampleRate = 48000);
+        void AddDecoder(const std::string_view& url, const uint32_t& sampleRate = Decoder::DEFAULT_SAMPLE_RATE, const size_t& pos = 0);
+        void AddDecoderBack(const std::string_view& url, const uint32_t& sampleRate = Decoder::DEFAULT_SAMPLE_RATE);
 
         void DeleteAudio(const size_t& index = 0);
         void DeleteAllAudio();
@@ -39,14 +39,12 @@ namespace Orchestra
         void SetAudioSampleRate(const uint32_t& sampleRate, const size_t& index = 0);
 
         void SetEnableLogSentPackets(const bool& enable);
-        void SetEnableLazyDecoding(const bool& enable);
         void SetSentPacketSize(const uint32_t& size);
 
         bool GetIsPaused() const noexcept;
         bool GetIsDecoding() const noexcept;
 
         bool GetEnableLogSentPackets() const noexcept;
-        bool GetEnableLazyDecoding() const noexcept;
         uint32_t GetSentPacketSize() const noexcept;
 
         size_t GetDecodersCount() const noexcept;
@@ -60,13 +58,12 @@ namespace Orchestra
         bool HasDecoderFinished(const size_t& index = 0) const;
 
     private:
-        void LazyDecodingCheck(const std::chrono::milliseconds& toWait, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10)) const;
+        void LazyDecodingCheck(const std::chrono::milliseconds& toWait, std::unique_lock<std::mutex>& pauseLock, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10));
 
     private:
         std::vector<Decoder> m_Decoders;
 
         uint32_t m_SentPacketSize;
-        bool m_EnableLazyDecoding : 1;
         bool m_EnableLogSentPackets : 1;
 
         std::atomic_bool m_IsDecoding;

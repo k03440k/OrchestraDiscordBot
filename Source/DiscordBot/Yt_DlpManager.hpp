@@ -33,7 +33,6 @@ namespace Orchestra
             O_ASSERT(itFound->value.template Is<T>(), "The type of ", GuelderConsoleLog::WStringToString(item), " is not ", typeid(T).name());
         }
 
-
         return itFound->value.template Get<T>();
     }
 

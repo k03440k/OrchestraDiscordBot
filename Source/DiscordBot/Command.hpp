@@ -143,6 +143,11 @@ namespace Orchestra
 
         return found->GetValue<Return>();
     }
+    template<typename Return>
+    Return GetParamValue(const std::vector<Param>& params, const size_t& index)
+    {
+        return params[index].GetValue<Return>();
+    }
     template<typename T>
     void GetParamValue(const std::vector<Param>& params, const std::string_view& name, T& value)
     {

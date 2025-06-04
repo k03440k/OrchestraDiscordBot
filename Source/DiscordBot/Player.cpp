@@ -21,14 +21,18 @@ extern "C"
 namespace Orchestra
 {
     Player::Player(const uint32_t& sentPacketsSize, const bool& enableLazyDecoding, const bool& enableLogSentPackets)
-        : m_SentPacketSize(sentPacketsSize), m_EnableLazyDecoding(enableLazyDecoding), m_EnableLogSentPackets(enableLogSentPackets) {}
+        : m_SentPacketSize(sentPacketsSize), m_EnableLogSentPackets(enableLogSentPackets) {}
 
-    void Player::LazyDecodingCheck(const std::chrono::milliseconds& toWait, const std::chrono::milliseconds& sleepFor) const
+    void Player::LazyDecodingCheck(const std::chrono::milliseconds& toWait, std::unique_lock<std::mutex>& pauseLock, const std::chrono::milliseconds& sleepFor)
     {
-        const auto startedTime = std::chrono::steady_clock::now();
+        auto startedTime = std::chrono::steady_clock::now();
 
         while(m_IsDecoding)
         {
+            const auto waited = std::chrono::steady_clock::now() - startedTime;
+
+            m_PauseCondition.wait(pauseLock, [this, &startedTime, &waited] { startedTime = std::chrono::steady_clock::now() - waited; return m_IsPaused == false; });
+
             if(m_IsSkippingFrames || std::chrono::steady_clock::now() - startedTime >= toWait)
                 break;
 
@@ -52,14 +56,14 @@ namespace Orchestra
         uint64_t totalSentSize = 0;
         //float totalDuration = 0;
 
-        GE_LOG(Orchestra, Info, "PlayAduio is executing on thread with index ", std::this_thread::get_id(), '.');
+        GE_LOG(Orchestra, Info, "PlayAudio is executing on thread with index ", std::this_thread::get_id(), '.');
 
         m_IsDecoding = true;
 
         float currentSentDuration = 0.f;
 
         bool skipping = false;
-        
+
         constexpr int initialSampleRate = Decoder::DEFAULT_SAMPLE_RATE;
         m_PreviousSampleRate = initialSampleRate;
 
@@ -84,18 +88,15 @@ namespace Orchestra
                 //I need to call from discord stop and proceed to decoding
                 if(!m_IsSkippingFrames && !m_IsChangingSampleRate)
                 {
-                    if(m_EnableLazyDecoding)
-                    {
-                        LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 });
+                    LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 }, pauseLock);
 
-                        if(!m_IsDecoding)
-                            break;
-                    }
+                    if(!m_IsDecoding)
+                        break;
                 }
                 else
                 {
-                    if(!m_IsChangingSampleRate)
-                        voice->voiceclient->stop_audio();
+                    //if(!m_IsChangingSampleRate)
+                        //voice->voiceclient->stop_audio();
                     m_IsSkippingFrames = false;
                 }
 
@@ -123,13 +124,13 @@ namespace Orchestra
                 }
                 else if(m_IsChangingSampleRate)
                 {
-                    
+
                     const float remainingSeconds = voice->voiceclient->get_secs_remaining();
                     m_CurrentDecodingDuration -= remainingSeconds * prevSampleRateRatio;
-                    GE_LOG(Orchestra, Warning, "prevSampleRateRatio = ", prevSampleRateRatio, "; totalDuration = ", m_CurrentDecodingDuration , "; remainingSeconds = ", remainingSeconds, "; currentTimestamp in secs", static_cast<float>(decoder.GetCurrentTimestamp()) * decoder.GetTimestampToSecondsRatio());
+                    GE_LOG(Orchestra, Warning, "prevSampleRateRatio = ", prevSampleRateRatio, "; totalDuration = ", m_CurrentDecodingDuration, "; remainingSeconds = ", remainingSeconds, "; currentTimestamp in secs", static_cast<float>(decoder.GetCurrentTimestamp()) * decoder.GetTimestampToSecondsRatio());
                     decoder.SkipToSeconds(m_CurrentDecodingDuration);
                 }
-                
+
                 buffer.clear();
             }
 
@@ -139,8 +140,10 @@ namespace Orchestra
         //leftovers
         if(m_IsDecoding && !buffer.empty())
         {
-            if(m_EnableLazyDecoding)
-                LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 });
+            std::unique_lock pauseLock{ m_PauseMutex };
+            m_PauseCondition.wait(pauseLock, [this] { return m_IsPaused == false; });
+
+            LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 }, pauseLock);
 
             if(m_IsDecoding)
             {
@@ -155,6 +158,7 @@ namespace Orchestra
         }
 
         m_IsDecoding = false;
+        m_CurrentDecodingDuration = 0;
 
         if(m_EnableLogSentPackets)
             GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", m_CurrentDecodingDuration, '.');
@@ -230,7 +234,7 @@ namespace Orchestra
 
         m_PreviousSampleRate = m_Decoders[index].GetOutSampleRate();
         m_Decoders[index].SetOutSampleRate(sampleRate);
-        
+
         m_IsChangingSampleRate = true;
         m_IsSkippingFrames = true;
 
@@ -241,10 +245,6 @@ namespace Orchestra
     void Player::SetEnableLogSentPackets(const bool& enable)
     {
         m_EnableLogSentPackets = enable;
-    }
-    void Player::SetEnableLazyDecoding(const bool& enable)
-    {
-        m_EnableLazyDecoding = enable;
     }
     void Player::SetSentPacketSize(const uint32_t& size)
     {
@@ -263,10 +263,6 @@ namespace Orchestra
     bool Player::GetEnableLogSentPackets() const noexcept
     {
         return m_EnableLogSentPackets;
-    }
-    bool Player::GetEnableLazyDecoding() const noexcept
-    {
-        return m_EnableLazyDecoding;
     }
     uint32_t Player::GetSentPacketSize() const noexcept
     {

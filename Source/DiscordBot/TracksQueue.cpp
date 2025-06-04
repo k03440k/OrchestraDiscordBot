@@ -11,6 +11,7 @@
 namespace Orchestra
 {
     size_t TracksQueue::s_CurrentUniqueTrackIndex = 0;
+    size_t TracksQueue::s_CurrentUniquePlaylistIndex = 0;
 
     TracksQueue::TracksQueue(const std::wstring_view& yt_dlpPath)
         : m_Yt_DlpManager(yt_dlpPath.data()), m_RandomEngine(m_RandomDevice()) {}
@@ -60,7 +61,7 @@ namespace Orchestra
             //PlaylistInfo tmp = { prevLastIndex, GetLastIndex(), repeat };
 
             //m_PlaylistInfos.push_back(std::move(tmp));
-            m_PlaylistInfos.emplace_back(prevLastIndex, GetLastIndex(), repeat);
+            m_PlaylistInfos.emplace_back(prevLastIndex, GetLastIndex(), repeat, s_CurrentUniquePlaylistIndex++);
         }
         else
         {
@@ -108,76 +109,71 @@ namespace Orchestra
     {
         m_Tracks.erase(m_Tracks.begin() + index);
 
-        if(!m_PlaylistInfos.empty())
-            for(size_t i = 0; i < m_PlaylistInfos.size();)
+        for(size_t i = 0; i < m_PlaylistInfos.size();)
+        {
+            PlaylistInfo& playlistInfo = m_PlaylistInfos[i];
+
+            if(index < playlistInfo.beginIndex)
             {
-                PlaylistInfo& playlistInfo = m_PlaylistInfos[i];
-
-                if(index <= playlistInfo.beginIndex)
-                {
-                    playlistInfo.beginIndex--;
-                    playlistInfo.endIndex--;
-                }
-                else if(index < playlistInfo.endIndex)
-                {
-                    playlistInfo.endIndex--;
-
-                    if(playlistInfo.beginIndex == playlistInfo.endIndex)
-                    {
-                        m_PlaylistInfos.erase(m_PlaylistInfos.begin() + i);
-                        break;
-                    }
-                }
-
-                i++;
+                playlistInfo.beginIndex--;
+                playlistInfo.endIndex--;
+            }
+            else if(index <= playlistInfo.endIndex)
+            {
+                playlistInfo.endIndex--;
             }
 
-        //for(auto it = m_Tracks.begin() + index; it != m_Tracks.end(); ++it)
-            //it->playlistIndex--;
+            if(playlistInfo.beginIndex == playlistInfo.endIndex)
+            {
+                m_PlaylistInfos.erase(m_PlaylistInfos.begin() + i);
+                break;
+            }
+
+            i++;
+        }
     }
     void TracksQueue::DeleteTracks(const size_t& from, const size_t& to)
     {
-        //m_Tracks.erase(m_Tracks.begin() + from, m_Tracks.begin() + to + (from + 1 != to));
         m_Tracks.erase(m_Tracks.begin() + from, m_Tracks.begin() + to + 1);
 
         const size_t sizeDeleted = to - from + 1;
 
-        if(!m_PlaylistInfos.empty())
-            for(size_t i = 0; i < m_PlaylistInfos.size();)
+        for(size_t i = 0; i < m_PlaylistInfos.size();)
+        {
+            PlaylistInfo& playlistInfo = m_PlaylistInfos[i];
+
+            const bool capturesFullRangeOfPlaylist = from <= playlistInfo.beginIndex && to >= playlistInfo.endIndex;
+            bool eraseCurrentPlaylist = false;
+
+            if(capturesFullRangeOfPlaylist)
+                eraseCurrentPlaylist = true;
+            else
             {
-                PlaylistInfo& playlistInfo = m_PlaylistInfos[i];
-
-                //const size_t playlistSize = playlistInfo.endIndex - playlistInfo.beginIndex + 1;
-
-                const bool capturesFullRangeOfPlaylist = from <= playlistInfo.beginIndex && to >= playlistInfo.endIndex;
-                bool eraseCurrentPlaylist = false;
-
-                if(capturesFullRangeOfPlaylist)
-                    eraseCurrentPlaylist = true;
-                else
+                if(from <= playlistInfo.beginIndex)
                 {
-                    if(from <= playlistInfo.beginIndex)
-                    {
-                        playlistInfo.beginIndex = from;
-                        playlistInfo.endIndex -= sizeDeleted;
-                    }
-                    else if(from > playlistInfo.beginIndex)
-                    {
-                        if(from < playlistInfo.endIndex)
-                            playlistInfo.endIndex = from;
-                        else if(from == playlistInfo.endIndex)
-                            playlistInfo.endIndex--;
-                    }
+                    playlistInfo.beginIndex = (sizeDeleted <= playlistInfo.beginIndex ? playlistInfo.beginIndex - sizeDeleted : 0);
+                    playlistInfo.endIndex -= sizeDeleted;
+                }
+                else if(from > playlistInfo.beginIndex)
+                {
+                    if(from < playlistInfo.endIndex)
+                        playlistInfo.endIndex = from - 1;//as we have deleted this element, so 1 should be here
+                    else if(from == playlistInfo.endIndex)
+                        playlistInfo.endIndex--;
                 }
 
-                if(eraseCurrentPlaylist)
-                {
-                    m_PlaylistInfos.erase(m_PlaylistInfos.begin() + i);
-                    continue;
-                }
-
-                i++;
+                eraseCurrentPlaylist = playlistInfo.beginIndex == playlistInfo.endIndex;
             }
+
+            if(eraseCurrentPlaylist)
+            {
+                m_PlaylistInfos.erase(m_PlaylistInfos.begin() + i);
+                continue;
+            }
+
+            //do not touch this, look at "continue" above
+            i++;
+        }
     }
 
     void TracksQueue::Clear()
