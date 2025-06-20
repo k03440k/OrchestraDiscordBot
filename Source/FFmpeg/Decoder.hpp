@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,7 +21,8 @@ namespace Orchestra
         static constexpr uint32_t DEFAULT_SAMPLE_RATE = 48000;
         static constexpr AVSampleFormat DEFAULT_OUT_SAMPLE_FORMAT = AV_SAMPLE_FMT_S16;
     public:
-        Decoder(const std::string_view& url, const AVSampleFormat& outSampleFormat = DEFAULT_OUT_SAMPLE_FORMAT, const uint32_t& outSampleRate = DEFAULT_SAMPLE_RATE);
+        Decoder();
+        Decoder(const std::string_view& url, const uint32_t& outSampleRate = DEFAULT_SAMPLE_RATE, const AVSampleFormat& outSampleFormat = DEFAULT_OUT_SAMPLE_FORMAT);
         ~Decoder() = default;
 
         Decoder(const Decoder& other);
@@ -35,12 +37,24 @@ namespace Orchestra
         void SkipToSeconds(const float& seconds) const;
         void SkipSeconds(const float& seconds) const;
 
+        void ResetGraph();
+
         uint32_t FindStreamIndex(const AVMediaType& mediaType) const;
 
         bool AreThereFramesToProcess() const;
 
+        void Reset();
+        bool IsReady() const;
+
         //getters, setters
     public:
+        void SetBassBoost(const float& decibelsBoost = 0.f, const float& frequencyToAdjust = 0.f, const float& bandwidth = 0.f) const;
+
+        void SetEqualizer(const std::string_view& args) const;
+        void SetEqualizer(const std::map<float, float>& frequencies) const;
+
+        void SetLimiter(const float& limit);
+
         int GetInitialSampleRate() const;
         AVSampleFormat GetInitialSampleFormat() const;
 
@@ -51,7 +65,7 @@ namespace Orchestra
 
         AVSampleFormat GetOutSampleFormat() const;
         int GetOutSampleRate() const;
-        
+
         int64_t GetTotalDuration() const;
         float GetTotalDurationSeconds() const;
 
@@ -68,12 +82,24 @@ namespace Orchestra
         static SwrContext* DuplicateSwrContext(SwrContext* from);
 
         AVStream* GetStream() const;
+
+        AVFilterContext* CreateFilterContext(const std::string_view& filterNameToFind, AVFilterContext* link = nullptr, const std::string_view& customName = "", const std::string_view& args = "") const;
     private:
         FFmpegUniquePtrManager::UniquePtrAVFormatContext m_FormatContext;
         FFmpegUniquePtrManager::UniquePtrAVCodecContext m_CodecContext;
         FFmpegUniquePtrManager::UniquePtrSwrContext m_SwrContext;
         FFmpegUniquePtrManager::UniquePtrAVPacket m_Packet;
         FFmpegUniquePtrManager::UniquePtrAVFrame m_Frame;
+
+        FFmpegUniquePtrManager::UniquePtrAVFilterGraph m_FilterGraph;
+        struct
+        {
+            AVFilterContext* bufferSource;
+            AVFilterContext* bass;
+            AVFilterContext* equalizer;
+            AVFilterContext* limiter;
+            AVFilterContext* bufferSink;
+        } m_Filters{ nullptr, nullptr, nullptr, nullptr, nullptr };
 
         int m_MaxBufferSize;
 

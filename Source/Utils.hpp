@@ -17,6 +17,13 @@ namespace Orchestra
 {
     GE_DECLARE_LOG_CATEGORY_DEFAULT_COLORS_CONSTEXPR(Orchestra, All, true, false, true);
 
+    template<typename T>
+    concept Container =
+        requires(T a) {
+            { std::begin(a) } -> std::input_or_output_iterator;
+            { std::end(a) } -> std::input_or_output_iterator;
+    };
+
     class OrchestraException : public std::exception
     {
     public:
@@ -68,5 +75,13 @@ namespace Orchestra
 
             std::this_thread::sleep_for(sleepFor);
         }
+    }
+    template<Container ContainerType>
+    void Transfer(ContainerType& container, const size_t& from, const size_t& to)
+    {
+        if(from < to)
+            std::rotate(container.begin() + from, container.begin() + from + 1, container.begin() + to + 1);
+        else
+            std::rotate(container.begin() + to, container.begin() + from, container.begin() + from + 1);
     }
 }

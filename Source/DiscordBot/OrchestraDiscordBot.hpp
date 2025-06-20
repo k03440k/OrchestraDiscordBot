@@ -35,6 +35,13 @@ namespace Orchestra
         void CommandCurrentTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandPlaylist(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandSpeed(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandBass(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandEqualizer(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandRepeat(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandInsert(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandTransfer(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandShuffle(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandDelete(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandStop(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
@@ -45,6 +52,11 @@ namespace Orchestra
 
     private:
         static void ConnectToMemberVoice(const dpp::message_create_t& message);
+
+        void WaitUntilJoined(const std::chrono::milliseconds& delay);
+        dpp::voiceconn* IsVoiceConnectionReady(const dpp::snowflake& guildSnowflake);
+
+        void AddToQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value, size_t insertIndex = std::numeric_limits<size_t>::max());
 
         template<GuelderConsoleLog::Concepts::STDOut... Args>
         static void Reply(const dpp::message_create_t& message, Args&&... args)
@@ -59,16 +71,13 @@ namespace Orchestra
                 GE_LOG(Orchestra, Warning, "The message exceeds ", DPP_MAX_MESSAGE_LENGTH, " lenght.");
             }
             else
-                ReplyWithMessage(message, reply);
+                ReplyWithMessage(message, { reply });
         }
         static void ReplyWithMessage(const dpp::message_create_t& message, const dpp::message& reply);
 
-        void SendEmbedsSequentially(const dpp::message_create_t& event,const std::vector<dpp::embed>& embeds,size_t index = 0);
+        void SendEmbedsSequentially(const dpp::message_create_t& event, const std::vector<dpp::embed>& embeds, size_t index = 0);
 
-        void WaitUntilJoined(const std::chrono::milliseconds& delay);
-        dpp::voiceconn* IsVoiceConnectionReady(const dpp::snowflake& guildSnowflake);
-
-        void AddTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        uint32_t GetCurrentPlaylistIndex();
 
     private:
         void ReplyWithInfoAboutTrack(const dpp::message_create_t& message, const TrackInfo& trackInfo, const bool& outputURL = true, const bool& printCurrentTimestamp = false);
@@ -87,6 +96,7 @@ namespace Orchestra
 
         TracksQueue m_TracksQueue;
         std::atomic_uint32_t m_CurrentTrackIndex;
+        std::atomic_uint32_t m_CurrentPlaylistIndex;
         mutable std::mutex m_TracksQueueMutex;
     };
 }

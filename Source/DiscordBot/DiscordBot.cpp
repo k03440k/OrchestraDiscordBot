@@ -90,7 +90,7 @@ namespace Orchestra
         }
 
         //params
-        size_t commandValueOffset = 0;
+        size_t commandValueOffset = std::string::npos;
         std::vector<Param> params;
         if(commandEndOffset)
         {
@@ -183,9 +183,10 @@ namespace Orchestra
                         if(i == paramsOffsets.size() - 1)
                             commandValueOffset = paramsOffsets[i].second;
 
-                        if(param.properties.type == Type::Bool)
+                        if (param.properties.type == Type::Bool)
                             param.value = "1";
                         else
+                            //std::rethrow_exception(std::current_exception());
                             continue;
                     }
 
@@ -199,10 +200,16 @@ namespace Orchestra
         }
 
         //command value
-        MessageIterator lastWhiteSpace = std::find_if(message.rbegin(), std::reverse_iterator{ message.begin() + commandValueOffset }, [](const char& ch) { return ch != ' '; }).base();
-        size_t commandValueLength = lastWhiteSpace - message.begin() - commandValueOffset;
+        std::string commandValue;
+        if(commandValueOffset != std::string::npos)
+        {
+            MessageIterator lastWhiteSpace = std::find_if(message.rbegin(), std::reverse_iterator{ message.begin() + commandValueOffset }, [](const char& ch) { return ch != ' '; }).base();
+            size_t commandValueLength = lastWhiteSpace - message.begin() - commandValueOffset;
 
-        std::string commandValue{ commandValueOffset == 0 ? "" : message.substr(commandValueOffset, commandValueLength) };
+            commandValue = message.substr(commandValueOffset, commandValueLength);
+        }
+
+        //std::string commandValue{ commandValueOffset == std::string::npos ? "" : message.substr(commandValueOffset, commandValueLength) };
 
         return { {std::move(commandName), std::move(params), std::move(commandValue)}, supportedCommandIndex };
     }

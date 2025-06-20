@@ -23,12 +23,12 @@
 #include "Yt_DlpManager.hpp"
 #include "TracksQueue.hpp"
 
+using namespace GuelderConsoleLog;
+
 namespace Orchestra
 {
-    using namespace GuelderConsoleLog;
-
     OrchestraDiscordBot::OrchestraDiscordBot(const std::string_view& token, const std::wstring_view& yt_dlpPath, const std::string_view& prefix, const char& paramPrefix, uint32_t intents)
-        : DiscordBot(token, prefix, paramPrefix, intents), m_Player(200000, true, false), m_AdminSnowflake(0), m_TracksQueue(yt_dlpPath.data())
+        : DiscordBot(token, prefix, paramPrefix, intents), m_Player(200000, false), m_AdminSnowflake(0), m_TracksQueue(yt_dlpPath.data()), m_CurrentPlaylistIndex(std::numeric_limits<uint32_t>::max())
     {
         this->on_voice_state_update(
             [this](const dpp::voice_state_update_t& voiceState)
@@ -68,7 +68,7 @@ namespace Orchestra
         //rename to Orchestra and find an avatar - DONE
         //add queue command - DONE
         //add disconnecting if nobody is in the channel or if count of track is zero for some time
-        //fix bugs with Current timestamp
+        //add more params to CommandDelete, CommandSpeed, CommandRepeat from, to, index, middle, last, playlist (boring shit)
         //Queue Roadmap:
         //I need some vector with music values in order not to change a lot code in CommandPlay - DONE
 
@@ -81,7 +81,7 @@ namespace Orchestra
         //TODO: use PlaylistInfo - DONE
 
         //TODO: BEAUTY!!!!
-        //TODO: fix Current timestamp: 7.79999s. if it is possible
+        //TODO: fix Current timestamp: 7.79999s. if it is possible - PARTIALLY
 
         //help
         this->AddCommand({ "help",
@@ -93,9 +93,11 @@ namespace Orchestra
         this->AddCommand({ "play",
             std::bind(&OrchestraDiscordBot::CommandPlay, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
             {
-                ParamProperties{"speed", Type::Float, "Changes speed of audio. If speed < 1: audio plays faster. This param can be called while audio is playing."},
+                ParamProperties{"speed", Type::Float, "Changes speed of audio. If speed < 1: audio plays faster."},
+                ParamProperties{"bass", Type::Float, "Sets bass-boost."},
+                ParamProperties{"basshz", Type::Float, "Sets bass-boost to a specific frequency. By default it equals 110."},
+                ParamProperties{"bassband", Type::Float, "Sets bandwidth to the bass-boost. By default it equals 0.3."},
                 ParamProperties{"repeat", Type::Int, Logger::Format("Repeats audio for certain number. If repeat < 0: the audio will be playing for ", std::numeric_limits<int>::max(), " times.")},
-                //ParamProperties{"index", Type::Int},
                 ParamProperties{"search", Type::Bool, "If search is explicitly set: it will search or not search via yt-dlp."},
                 ParamProperties{"searchengine", Type::String, "A certain search engine that will be used to find URL. Supported: yt - Youtube(default), sc - SoundCloud."},
                 ParamProperties{"noinfo", Type::Bool, "If noinfo is true: the info(name, URL(optional), duration) about track won't be sent."},
@@ -104,6 +106,89 @@ namespace Orchestra
                 ParamProperties{"shuffle", Type::Bool, "Whether to shuffle tracks of a playlist."}
             },
             "Joins your voice channel and plays audio from YouTube or SoundCloud, or from raw URL to audio, or admin's local files(note: a whole bunch of formats are not supported). Playlists are supported!"
+            });
+        //playlist
+        this->AddCommand({ "playlist",
+            std::bind(&OrchestraDiscordBot::CommandPlaylist, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"name", Type::String, "The name of playlist to add/change."},
+                ParamProperties{"from", Type::Int, "The begin index of the playlist."},
+                ParamProperties{"to", Type::Int, "The end index of the playlist."},
+                ParamProperties{"speed", Type::Float, "The speed to set to the tracks."},
+                ParamProperties{"repeat", Type::Int, "The repeat count of the playlist."},
+                ParamProperties{"delete", Type::Int, "Deletes playlist by index."}
+            },
+            "Adds, changes, deletes playlists. By default it makes a playlist. If input indicies intersect with other playlists, they get destroyed."
+            });
+        //speed
+        this->AddCommand({ "speed",
+            std::bind(&OrchestraDiscordBot::CommandSpeed, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"index", Type::Int, "The index of the track to change speed."},
+                ParamProperties{"middle", Type::Bool, "The middle track of the queue."},
+                ParamProperties{"last", Type::Bool, "The last track of the queue."},
+                ParamProperties{"from", Type::Int, "Sets the speed to the tracks from given index to the end of the queue or if used with \"to\" param, it will set the speed to the given range of tracks."},
+                ParamProperties{"to", Type::Int, "Sets the speed to the tracks from the queue from the beginning to the given index or if used with \"from\" param, it will set the speed to the given range of tracks."},
+                ParamProperties{"playlist", Type::Int, "Sets the speed to the given playlist."}
+            },
+            "Sets speed to the track or tracks that correspond to the given index or range of indices. By default it sets speed to the current track."
+            });
+        //bass
+        this->AddCommand({ "bass",
+            std::bind(&OrchestraDiscordBot::CommandBass, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"clear", Type::Bool, "Clears bass-boost."},
+                ParamProperties{"hz", Type::Float, "Sets bass-boost to a specific frequency. By default it equals 110."},
+                ParamProperties{"band", Type::Float, "Sets bandwidth to the bass-boost. By default it equals 0.3."}
+            },
+            "Sets bass-boost decibels to the queue, that means that it is not specific to any tracks, like speed or repeat command are, but rather global. By default the value is zero."
+            });
+        //equalizer
+        this->AddCommand({ "equalizer",
+            std::bind(&OrchestraDiscordBot::CommandEqualizer, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"clear", Type::Bool, "Clears equalizer."},
+                ParamProperties{"hz", Type::Float, "A frequency to adjust."},
+                ParamProperties{"delete", Type::Float, "Whether to delete frequency. Note that command value is ignored."}
+            },
+            "Sets equalizer frequencies(Hz) and decibels boosts to them to the queue, that means that it is not specific to any tracks, like speed or repeat command are, but rather global. By default the value is zero."
+            });
+        //repeat
+        this->AddCommand({ "repeat",
+            std::bind(&OrchestraDiscordBot::CommandRepeat, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"index", Type::Int, "The index of the track to change repeat count."},
+                ParamProperties{"middle", Type::Bool, "The middle track of the queue."},
+                ParamProperties{"last", Type::Bool, "The last track of the queue."},
+                ParamProperties{"from", Type::Int, "Sets the repeat count to the tracks from given index to the end of the queue or if used with \"to\" param, it will set the repeat count to the given range of tracks."},
+                ParamProperties{"to", Type::Int, "Sets the repeat count to the tracks from the queue from the beginning to the given index or if used with \"from\" param, it will set the repeat count to the given range of tracks."},
+                ParamProperties{"playlist", Type::Int, "Sets the  repeat count to the given playlist."}
+            },
+            "Sets repeat count to the track or tracks that correspond to the given index or range of indices. By default it sets repeat count to the current track."
+            });
+        //insert
+        this->AddCommand({ "insert",
+            std::bind(&OrchestraDiscordBot::CommandInsert, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"after", Type::Int, "An index after which track or tracks will be inserted."},
+                ParamProperties{"speed", Type::Float, "Changes speed of audio. If speed < 1: audio plays faster. This param can be called while audio is playing."},
+                ParamProperties{"repeat", Type::Int, Logger::Format("Repeats audio for certain number. If repeat < 0: the audio will be playing for ", std::numeric_limits<int>::max(), " times.")},
+                ParamProperties{"search", Type::Bool, "If search is explicitly set: it will search or not search via yt-dlp."},
+                ParamProperties{"searchengine", Type::String, "A certain search engine that will be used to find URL. Supported: yt - Youtube(default), sc - SoundCloud."},
+                ParamProperties{"raw", Type::Bool, "If raw is false: it won't use yt-dlp for finding a raw URL to audio."},
+                ParamProperties{"shuffle", Type::Bool, "Whether to shuffle tracks of a playlist."}
+            },
+            "Inserts tracks into specific position. By default it inserts tracks right after a current one."
+            });
+        //transfer
+        this->AddCommand({ "transfer",
+            std::bind(&OrchestraDiscordBot::CommandTransfer, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
+            {
+                ParamProperties{"to", Type::Int, "An index after which track or tracks will be inserted."},
+                ParamProperties{"current", Type::Bool, "After current track."},
+                ParamProperties{"middle", Type::Bool, "After the middle track."}
+            },
+            "Transfers track from index to index. You must provide int as a value to this command. By default it will transfer a track to the end."
             });
         //skip
         this->AddCommand({ "skip",
@@ -122,7 +207,11 @@ namespace Orchestra
         //shuffle
         this->AddCommand({ "shuffle",
             std::bind(&OrchestraDiscordBot::CommandShuffle, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3),
-            {},
+            {
+                ParamProperties{"from", Type::Int, "From which to shuffle"},
+                ParamProperties{"to", Type::Int, "To which shuffle"},
+                ParamProperties{"playlist", Type::Int, "Playlist index to shuffle."}
+            },
             "Shuffles all tracks that are in the queue. Forgets about playlists repeats, but not the speeds."
             });
         //delete
@@ -179,23 +268,41 @@ namespace Orchestra
             "Terminates the bot. Only admin can use this command."
             });
     }
-
+}
+namespace Orchestra
+{
     void OrchestraDiscordBot::CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
-        std::string reply;
+        //idk. for some reason(probably because of long description) it doesn't send any embeds with DPP_MAX_EMBED_SIZE or 11
+        constexpr size_t _DPP_MAX_EMBED_SIZE = 10;
+
+        const size_t totalFieldsSize = m_Commands.size();
+
+        const size_t totalEmbedsCount = std::ceil(static_cast<float>(totalFieldsSize) / _DPP_MAX_EMBED_SIZE);
 
         std::vector<dpp::embed> embeds;
+        embeds.reserve(totalEmbedsCount);
 
-        for(size_t i = 0; i < m_Commands.size(); i += DPP_MAX_EMBED_SIZE)
+        size_t commandIndex = 0;
+
+        for(size_t embedsCount = 0; embedsCount < totalEmbedsCount; embedsCount++)
         {
             dpp::embed embed;
-            embed.set_title("List of commands");
 
-            //TODO: make the same as in CommandQueue
-
-            for(size_t j = i; j < std::min(i + DPP_MAX_EMBED_SIZE, m_Commands.size()); ++j)
+            //reserving
             {
-                const auto& command = m_Commands[j];
+                const size_t remaining = totalFieldsSize - embedsCount * _DPP_MAX_EMBED_SIZE;
+                embed.fields.reserve(remaining > _DPP_MAX_EMBED_SIZE ? _DPP_MAX_EMBED_SIZE : remaining);
+            }
+            if(embedsCount == 0)
+                embed.set_title(Logger::Format("Help. Total Commands size: ", totalFieldsSize, '.'));
+
+            for(; commandIndex < totalFieldsSize; commandIndex++)
+            {
+                if(embed.fields.size() + 1 > _DPP_MAX_EMBED_SIZE)
+                    break;
+
+                const Command& command = m_Commands[commandIndex];
 
                 std::string fieldTitle = Logger::Format("`", m_Prefix, command.name, "`");
                 if(!command.description.empty())
@@ -220,7 +327,7 @@ namespace Orchestra
                 embed.add_field(fieldTitle, fieldValue, false);
             }
 
-            embeds.emplace_back(std::move(embed));
+            embeds.push_back(std::move(embed));
         }
 
         SendEmbedsSequentially(message, embeds);
@@ -230,7 +337,7 @@ namespace Orchestra
     {
         {
             std::lock_guard lock{ m_TracksQueueMutex };
-            if(!m_TracksQueue.GetSize())
+            if(!m_TracksQueue.GetTracksSize())
             {
                 Reply(message, "I'm not even playing anything!");
                 return;
@@ -240,20 +347,9 @@ namespace Orchestra
         bool showURL = false;
         GetParamValue(params, "url", showURL);
 
-        //dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
-
         std::lock_guard lock{ m_TracksQueueMutex };
 
         ReplyWithInfoAboutTrack(message, m_TracksQueue.GetTrackInfo(m_CurrentTrackIndex), showURL, true);
-
-        /*const auto& [URL, rawURL, title, duration, playlistIndex, repeat, speed] = m_TracksQueue.GetTrackInfo(m_CurrentTrackIndex);
-
-        std::string reply = Logger::Format('[', m_CurrentTrackIndex, "] **", WStringToString(title), "**.\nCurrent timestamp: ", m_Player.GetCurrentDecodingDurationSeconds() - voice->voiceclient->get_secs_remaining(), "s.\nDuration: ", duration, "s.\n");
-
-        if(showURL)
-            reply += Logger::Format("URL: ", WStringToString(URL));
-
-        Reply(message, reply);*/
     }
     void OrchestraDiscordBot::CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
@@ -261,13 +357,13 @@ namespace Orchestra
 
         dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
 
-        O_ASSERT(m_TracksQueue.GetSize() > 0, "The queue is empty!");
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The queue is empty!");
 
         bool showURLs = false;
         GetParamValue(params, "url", showURLs);
 
-        const size_t queueSize = m_TracksQueue.GetSize();
-        const size_t playlistsOffset = m_TracksQueue.GetPlaylistInfos().size() * 2;//as playlist contains beginIndex and endIndex which should be displayed
+        const size_t queueSize = m_TracksQueue.GetTracksSize();
+        const size_t playlistsOffset = m_TracksQueue.GetPlaylistsSize() * 2;//as playlist contains beginIndex and endIndex which should be displayed
 
         const size_t totalFieldsSize = queueSize + playlistsOffset;
 
@@ -276,6 +372,8 @@ namespace Orchestra
         size_t trackIndex = 0;
 
         size_t playlistInfoIndex = m_TracksQueue.GetPlaylistInfos().empty() ? std::numeric_limits<size_t>::max() : 0;
+
+        std::wstring playlistTitle;
 
         std::vector<dpp::embed> embeds;
         embeds.reserve(totalEmbedsCount);
@@ -289,10 +387,10 @@ namespace Orchestra
                 const size_t remaining = totalFieldsSize - embedsCount * DPP_MAX_EMBED_SIZE;
                 embed.fields.reserve(remaining > DPP_MAX_EMBED_SIZE ? DPP_MAX_EMBED_SIZE : remaining);
             }
-            embed.set_title(Logger::Format("Tracks queue. The size: ", queueSize));
+            if(embedsCount == 0)
+                embed.set_title(Logger::Format("Tracks queue. The size: ", queueSize));
 
-            //auto tmp = ((int)trackIndex - int(embedsCount * DPP_MAX_EMBED_SIZE));
-            for(; trackIndex < queueSize/* && tmp < DPP_MAX_EMBED_SIZE*/; trackIndex++)
+            for(; trackIndex < queueSize; trackIndex++)
             {
                 if(embed.fields.size() + 1 > DPP_MAX_EMBED_SIZE)
                     break;
@@ -302,13 +400,19 @@ namespace Orchestra
 
                 if(isPlaylistInfoValid && trackIndex == currentPlaylistInfo->beginIndex)
                 {
+                    playlistTitle = currentPlaylistInfo->title;
 
-                    std::string fieldTitle = Logger::Format("++(", playlistInfoIndex, ") Playlist begins. Size: ", currentPlaylistInfo->endIndex - currentPlaylistInfo->beginIndex + 1, '.');
+                    std::string playlistBeginField = Logger::Format("++(", playlistInfoIndex, ") ");
+
+                    if(!playlistTitle.empty())
+                        playlistBeginField += Logger::Format("**", WStringToString(playlistTitle), "**. ");
+
+                    playlistBeginField += Logger::Format("Playlist begins. Size: ", currentPlaylistInfo->endIndex - currentPlaylistInfo->beginIndex + 1, '.');
 
                     if(currentPlaylistInfo->repeat > 1)
-                        fieldTitle += Logger::Format(" Repeat count: ", currentPlaylistInfo->repeat, '.');
+                        playlistBeginField += Logger::Format(" Repeat count: ", currentPlaylistInfo->repeat, '.');
 
-                    embed.add_field(fieldTitle, "");
+                    embed.add_field(playlistBeginField, "");
                 }
 
                 const auto& [URL, rawURL, title, duration, playlistIndex, repeat, speed] = m_TracksQueue.GetTrackInfo(trackIndex);
@@ -322,12 +426,12 @@ namespace Orchestra
 
                 std::string fieldValue;
                 if(trackIndex == m_CurrentTrackIndex)
-                    fieldValue += Logger::Format("Duration: ", duration, "s.\nCurrent timestamp: ", m_Player.GetCurrentDecodingDurationSeconds() - voice->voiceclient->get_secs_remaining(), "s.\n");
+                    fieldValue += Logger::Format("Duration: ", duration, "s.\nCurrent timestamp: ", m_Player.GetCurrentTimestamp() - voice->voiceclient->get_secs_remaining(), "s.\n");
                 else
                     fieldValue += Logger::Format("Duration: ", duration, "s.\n");
 
                 if(speed != 1.f)
-                    fieldValue += Logger::Format("Duration with speed applied: ", static_cast<float>(duration) * speed, "s.\n");
+                    fieldValue += Logger::Format("Speed: ", speed, ".\nDuration with speed applied: ", static_cast<float>(duration) * speed, "s.\n");
                 if(repeat > 1)
                     fieldValue += Logger::Format("Repeat count: ", repeat, ".\n");
                 if(showURLs)
@@ -340,295 +444,683 @@ namespace Orchestra
                     if(embed.fields.size() + 1 > DPP_MAX_EMBED_SIZE)
                         break;
 
-                    embed.add_field(Logger::Format("--(", playlistInfoIndex, ") Playlist ends."), "");
+                    std::string playlistEndField = Logger::Format("--(", playlistInfoIndex, ") ");
+
+                    if(!playlistTitle.empty())
+                        playlistEndField += Logger::Format("**", WStringToString(playlistTitle), "**. ");
+
+                    playlistEndField += "Playlist ends.";
+
+                    embed.add_field(playlistEndField, "");
+
+                    playlistTitle.clear();
 
                     playlistInfoIndex++;
 
-                    if(playlistInfoIndex >= m_TracksQueue.GetPlaylistInfos().size())
+                    if(playlistInfoIndex >= m_TracksQueue.GetPlaylistsSize())
                         playlistInfoIndex = std::numeric_limits<size_t>::max();
                 }
             }
 
             embeds.push_back(std::move(embed));
-
-            SendEmbedsSequentially(message, embeds);
         }
+
+        SendEmbedsSequentially(message, embeds);
     }
     void OrchestraDiscordBot::CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
-        if(!value.empty())
+        O_ASSERT(!value.empty(), "No music value provided.");
+
+        //join
+        if(!m_IsJoined)
+            ConnectToMemberVoice(message);
+
+        m_IsStopped = false;
+
+        std::unique_lock _queueLock{ m_TracksQueueMutex };
+
+        const size_t tracksNumberBefore = m_TracksQueue.GetTracksSize();
+
+        AddToQueue(message, params, value);
+
+        if(tracksNumberBefore)
+            return;
+
+        int beginIndex = 0;
+        GetParamValue(params, "index", beginIndex);
+        m_CurrentTrackIndex = beginIndex;
+
+        //joining stuff
         {
-            //join
-            if(!m_IsJoined)
-                ConnectToMemberVoice(message);
+            WaitUntilJoined(std::chrono::seconds(2));
 
-            m_IsStopped = false;
-
-            std::unique_lock _queueLock{ m_TracksQueueMutex };
-
-            const size_t tracksNumberBefore = m_TracksQueue.GetSize();
-
-            /*PlayParams playParams = */AddTrack(message, params, value);
-
-            if(tracksNumberBefore)
-                return;
-
-            int beginIndex = 0;
-            GetParamValue(params, "index", beginIndex);
-            m_CurrentTrackIndex = beginIndex;
-
-            //joining stuff
-            {
-                WaitUntilJoined(std::chrono::seconds(2));
-
-                //waiting for voice connection to be established
-                WaitUntil(
-                    [&]
-                    {
-                        const dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
-
-                        return v && v->voiceclient && v->voiceclient->is_ready();
-                    },
-                    std::chrono::seconds(2));
-            }
-
-            _queueLock.unlock();
-
-            if(!m_IsStopped)
-            {
-                //checking if connection was successful
-                const dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
-
-                bool noInfo = false;
-
-                GetParamValue(params, "noinfo", noInfo);
-
-                bool isInPlaylist = false;
-                const PlaylistInfo* currentPlaylistInfo = nullptr;
-                size_t prevPlaylistIndex = std::numeric_limits<size_t>::max();
-                size_t prevTrackIndex;
-                size_t playlistRepeat = 0;
-
-                for(size_t i = 0, playlistRepeated = 0, trackRepeated = 0; true; ++i)
+            //waiting for voice connection to be established
+            WaitUntil(
+                [&]
                 {
-                    //std::unique_lock queueLock{ m_TracksQueueMutex };
-                    //const TrackInfo* currentTrackInfo = &m_TracksQueue.GetTrackInfos()[m_CurrentTrackIndex];
-                    const TrackInfo* currentTrackInfo = nullptr;
+                    const dpp::voiceconn* v = this->get_shard(0)->get_voice(message.msg.guild_id);
 
-                    //prevTrackIndex = currentTrackInfo->playlistIndex;
+                    return v && v->voiceclient && v->voiceclient->is_ready();
+                },
+                std::chrono::seconds(2));
+        }
 
-                    //I do it here, cuz I'm too lazy to make it inside try-catch block
-                    //queueLock.unlock();
+        _queueLock.unlock();
 
-                    bool caughtException = false;
-                    try
-                    {
-                        std::lock_guard playLock{ m_PlayMutex };
-                        {
-                            std::lock_guard queueLock{ m_TracksQueueMutex };
+        if(!m_IsStopped)
+        {
+            //checking if connection was successful
+            const dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
 
-                            if(m_CurrentTrackIndex >= m_TracksQueue.GetSize())
-                                break;
+            bool noInfo = false;
 
-                            currentTrackInfo = &m_TracksQueue.GetTrackInfos()[m_CurrentTrackIndex];
+            GetParamValue(params, "noinfo", noInfo);
 
-                            prevTrackIndex = currentTrackInfo->playlistIndex;
+            bool isInPlaylist = false;
+            const PlaylistInfo* currentPlaylistInfo = nullptr;
+            size_t prevPlaylistIndex = std::numeric_limits<size_t>::max();
+            size_t prevTrackIndex;
+            size_t playlistRepeat = 0;
 
-                            if(currentTrackInfo->rawURL.empty())
-                                currentTrackInfo = &m_TracksQueue.GetRawTrackURL(m_CurrentTrackIndex);
+            struct
+            {
+                float decibelsBoost = 0.f;
+                float frequencyToAdjust = 110.f;
+                float bandwidth = .3f;
+            } bassBoostSettings;
 
-                            GE_LOG(Orchestra, Info, "Received raw URL to a track: ", currentTrackInfo->rawURL);
+            GetParamValue(params, "bass", bassBoostSettings.decibelsBoost);
+            GetParamValue(params, "basshz", bassBoostSettings.frequencyToAdjust);
+            GetParamValue(params, "bassband", bassBoostSettings.bandwidth);
 
-                            //playParams.speed = currentTrackInfo->speed;
+            m_Player.SetBassBoost(bassBoostSettings.decibelsBoost, bassBoostSettings.frequencyToAdjust, bassBoostSettings.bandwidth);
 
-                            m_Player.AddDecoderBack(currentTrackInfo->rawURL, Decoder::DEFAULT_SAMPLE_RATE * currentTrackInfo->speed);
+            for(size_t i = 0, playlistRepeated = 0, trackRepeated = 0; true; ++i)
+            {
+                const TrackInfo* currentTrackInfo = nullptr;
 
-                            //printing info about the track
-                            if(!noInfo)
-                            {
-                                if(currentTrackInfo->title.empty())
-                                {
-                                    //it is raw, trying to get title with ffmpeg
-                                    std::wstring title;
-                                    std::string titleTmp = m_Player.GetTitle(0);
-
-                                    if(!titleTmp.empty())
-                                        title = StringToWString(titleTmp);
-
-                                    if(!title.empty())
-                                        m_TracksQueue.SetTrackTitle(m_CurrentTrackIndex, title);
-                                }
-                                if(currentTrackInfo->duration == 0.f)
-                                {
-                                    //it is raw, trying to get duration with ffmpeg
-                                    float duration;
-                                    duration = m_Player.GetTotalDurationSeconds(0);
-                                    if(duration != 0.f)
-                                        m_TracksQueue.SetTrackDuration(0, duration);
-                                }
-
-                                TrackInfo tmp = *currentTrackInfo;
-                                tmp.repeat -= trackRepeated;
-
-                                ReplyWithInfoAboutTrack(message, tmp);
-                            }
-                        }
-
-                        m_Player.DecodeAndSendAudio(voice);
-
-                        if(!m_IsStopped)
-                            m_Player.DeleteAudio(0);
-                    }
-                    catch(const OrchestraException& e)
-                    {
-                        caughtException = true;
-                        GE_LOG(Orchestra, Warning, "Caught OrchestraException during playling loop. Exception: ", e.GetFullMessage());
-                        Reply(message, "Failed to play track, due to ", e.GetUserMessage(), ". Skipping.");
-                    }
-                    catch(const std::exception& e)
-                    {
-                        caughtException = true;
-                        GE_LOG(Orchestra, Warning, "Caught std::exception during playling loop. Exception: ", e.what());
-                        Reply(message, "Failed to play track, skipping.");
-                    }
-
-                    if(caughtException)
-                    {
-                        std::lock_guard queueLock{ m_TracksQueueMutex };
-                        //haven't tested this
-                        m_TracksQueue.DeleteTrack(m_CurrentTrackIndex);
-                        continue;
-                    }
-
-                    /*bool isPlaylistInfosEmpty;
+                bool caughtException = false;
+                try
+                {
+                    std::lock_guard playLock{ m_PlayMutex };
                     {
                         std::lock_guard queueLock{ m_TracksQueueMutex };
 
-                        if(m_IsStopped || m_TracksQueue.GetSize() == 0)
+                        if(m_CurrentTrackIndex >= m_TracksQueue.GetTracksSize())
                             break;
 
-                        isPlaylistInfosEmpty = m_TracksQueue.GetPlaylistInfos().empty();
-                    }*/
+                        currentTrackInfo = &m_TracksQueue.GetTrackInfos()[m_CurrentTrackIndex];
 
-                    //indices shit. I strongly hope that it is the last version of this shit, cuz I'm tired by this stuff
-                    std::lock_guard queueLock{ m_TracksQueueMutex };
-                    //queueLock.lock();
+                        prevTrackIndex = currentTrackInfo->uniqueIndex;
 
-                    if(m_CurrentTrackIndex >= m_TracksQueue.GetSize())
+                        if(currentTrackInfo->rawURL.empty())
+                            currentTrackInfo = &m_TracksQueue.GetRawTrackURL(m_CurrentTrackIndex);
+
+                        GE_LOG(Orchestra, Info, "Received raw URL to a track: ", currentTrackInfo->rawURL);
+
+                        m_Player.SetDecoder(currentTrackInfo->rawURL, Decoder::DEFAULT_SAMPLE_RATE * currentTrackInfo->speed);
+
+                        //printing info about the track
+                        if(!noInfo)
+                        {
+                            if(currentTrackInfo->title.empty())
+                            {
+                                //it is raw, trying to get title with ffmpeg
+                                std::wstring title;
+                                std::string titleTmp = m_Player.GetTitle();
+
+                                if(!titleTmp.empty())
+                                    title = StringToWString(titleTmp);
+
+                                if(!title.empty())
+                                    m_TracksQueue.SetTrackTitle(m_CurrentTrackIndex, title);
+                            }
+                            if(currentTrackInfo->duration == 0.f)
+                            {
+                                //it is raw, trying to get duration with ffmpeg
+                                float duration;
+                                duration = m_Player.GetTotalDuration();
+                                if(duration != 0.f)
+                                    m_TracksQueue.SetTrackDuration(0, duration);
+                            }
+
+                            TrackInfo tmp = *currentTrackInfo;
+                            tmp.repeat -= trackRepeated;
+
+                            ReplyWithInfoAboutTrack(message, tmp);
+                        }
+                    }
+
+                    m_Player.DecodeAndSendAudio(voice);
+                }
+                catch(const OrchestraException& e)
+                {
+                    caughtException = true;
+                    GE_LOG(Orchestra, Warning, "Caught OrchestraException during playling loop. Exception: ", e.GetFullMessage());
+                    Reply(message, "Failed to play track, due to ", e.GetUserMessage(), ". Skipping.");
+                }
+                catch(const std::exception& e)
+                {
+                    caughtException = true;
+                    GE_LOG(Orchestra, Warning, "Caught std::exception during playling loop. Exception: ", e.what());
+                    Reply(message, "Failed to play track, skipping.");
+                }
+
+                //indices shit. I strongly hope that it is the last version of this shit, cuz I'm tired by this stuff
+                std::lock_guard queueLock{ m_TracksQueueMutex };
+
+                if(caughtException)
+                {
+                    //haven't tested this
+                    m_TracksQueue.DeleteTrack(m_CurrentTrackIndex);
+                    continue;
+                }
+
+                if(m_CurrentTrackIndex >= m_TracksQueue.GetTracksSize())
+                    break;
+
+                currentTrackInfo = &m_TracksQueue.GetTrackInfos()[m_CurrentTrackIndex];
+
+                const bool wasTrackSkipped = prevTrackIndex != currentTrackInfo->uniqueIndex;
+                bool incrementCurrentIndex = !wasTrackSkipped;
+
+                if(!wasTrackSkipped)
+                    trackRepeated++;
+
+                bool found = false;
+                for(size_t j = 0; j < m_TracksQueue.GetPlaylistsSize(); j++)
+                {
+                    const PlaylistInfo& playlistInfo = m_TracksQueue.GetPlaylistInfos()[j];
+
+                    const bool isInRange = m_CurrentTrackIndex >= playlistInfo.beginIndex && m_CurrentTrackIndex <= playlistInfo.endIndex;
+
+                    if(isInRange)
+                    {
+                        currentPlaylistInfo = &playlistInfo;
+                        isInPlaylist = true;
+                        playlistRepeat = playlistInfo.repeat;
+                        found = true;
+
+                        if(prevPlaylistIndex != currentPlaylistInfo->uniqueIndex)
+                            playlistRepeated = 0;
+
+                        m_CurrentPlaylistIndex = j;
+
                         break;
-
-                    currentTrackInfo = &m_TracksQueue.GetTrackInfos()[m_CurrentTrackIndex];
-
-                    const bool wasTrackSkipped = prevTrackIndex != currentTrackInfo->playlistIndex;
-                    bool incrementCurrentIndex = !wasTrackSkipped;
-
-                    if(!wasTrackSkipped)
-                        trackRepeated++;
-
-                    bool found = false;
-                    for(const auto& playlistInfo : m_TracksQueue.GetPlaylistInfos())
-                    {
-                        const bool isInRange = m_CurrentTrackIndex >= playlistInfo.beginIndex && m_CurrentTrackIndex <= playlistInfo.endIndex;
-
-                        if(isInRange)
-                        {
-                            currentPlaylistInfo = &playlistInfo;
-                            isInPlaylist = true;
-                            playlistRepeat = playlistInfo.repeat;
-                            found = true;
-
-                            if(prevPlaylistIndex != currentPlaylistInfo->index)
-                                playlistRepeated = 0;
-
-                            break;
-                        }
                     }
-                    if(!found)
-                    {
-                        isInPlaylist = false;
-                        currentPlaylistInfo = nullptr;
-                        prevPlaylistIndex = std::numeric_limits<size_t>::max();
-                        playlistRepeated = 0;
-                    }
+                }
+                if(!found)
+                {
+                    isInPlaylist = false;
+                    currentPlaylistInfo = nullptr;
+                    prevPlaylistIndex = std::numeric_limits<size_t>::max();
+                    playlistRepeated = 0;
+                    m_CurrentPlaylistIndex = std::numeric_limits<uint32_t>::max();
+                }
 
-                    if(!wasTrackSkipped)
+                if(!wasTrackSkipped)
+                {
+                    if(isInPlaylist && m_CurrentTrackIndex == currentPlaylistInfo->endIndex)
                     {
-                        if(isInPlaylist && m_CurrentTrackIndex == currentPlaylistInfo->endIndex)
+                        playlistRepeated++;
+
+                        if(playlistRepeated >= playlistRepeat)
                         {
-                            playlistRepeated++;
-
-                            if(playlistRepeated >= playlistRepeat)
-                            {
-                                //exiting the playlist
-                                incrementCurrentIndex = true;
-                                playlistRepeated = 0;
-                            }
-                            else
-                            {
-                                incrementCurrentIndex = false;
-                                m_CurrentTrackIndex = currentPlaylistInfo->beginIndex;
-                                trackRepeated = 0;
-                            }
+                            //exiting the playlist
+                            incrementCurrentIndex = true;
+                            playlistRepeated = 0;
                         }
                         else
                         {
-                            if(trackRepeated >= currentTrackInfo->repeat)
-                                incrementCurrentIndex = true;
-                            else
-                                incrementCurrentIndex = false;
+                            incrementCurrentIndex = false;
+                            m_CurrentTrackIndex = currentPlaylistInfo->beginIndex;
+                            trackRepeated = 0;
                         }
                     }
-
-                    if(isInPlaylist)
-                        prevPlaylistIndex = currentPlaylistInfo->index;
-
-                    if(incrementCurrentIndex)
+                    else
                     {
-                        ++m_CurrentTrackIndex;
-                        trackRepeated = 0;
+                        if(trackRepeated >= currentTrackInfo->repeat)
+                            incrementCurrentIndex = true;
+                        else
+                            incrementCurrentIndex = false;
                     }
                 }
 
+                if(isInPlaylist)
+                    prevPlaylistIndex = currentPlaylistInfo->uniqueIndex;
+
+                if(incrementCurrentIndex)
                 {
-                    std::lock_guard queueLock{ m_TracksQueueMutex };
-                    m_TracksQueue.Clear();
+                    ++m_CurrentTrackIndex;
+                    trackRepeated = 0;
                 }
-
-                m_CurrentTrackIndex = 0;
-
-                if(m_Player.GetDecodersCount())
-                    m_Player.DeleteAllAudio();
             }
+
+            {
+                std::lock_guard queueLock{ m_TracksQueueMutex };
+                m_TracksQueue.Clear();
+            }
+
+            m_CurrentTrackIndex = 0;
+
+            m_Player.ResetDecoder();
+        }
+    }
+
+    void OrchestraDiscordBot::CommandPlaylist(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        std::lock_guard queueLock{ m_TracksQueueMutex };
+
+        int deleteIndex = -1;
+        GetParamValue(params, "delete", deleteIndex);
+
+        if(deleteIndex == -1)
+        {
+            int from = 0;
+            int fromParamIndex = GetParamIndex(params, "from");
+            if(fromParamIndex != -1)
+                from = GetParamValue<int>(params, fromParamIndex);
+
+            int to = m_TracksQueue.GetTracksSize() - 1;
+            int toParamIndex = GetParamIndex(params, "to");
+            if(toParamIndex != -1)
+                to = GetParamValue<int>(params, toParamIndex);
+
+            float speed = 1.f;
+            GetParamValue(params, "speed", speed);
+
+            std::string name;
+            GetParamValue(params, "name", name);
+
+            int repeat = 1;
+            GetParamValue(params, "repeat", repeat);
+            if(repeat < 0)
+                repeat = std::numeric_limits<int>::max();
+
+            O_ASSERT(from < to && to < m_TracksQueue.GetTracksSize(), "Invalid start or end indicies.");
+            O_ASSERT(speed > 0.f, "Invalid speed value.");
+
+            for(size_t i = from; i <= to; i++)
+                m_TracksQueue.SetTrackSpeed(i, speed);
+
+            if(m_CurrentTrackIndex >= from && m_CurrentTrackIndex <= to)
+                m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed);
+
+            m_TracksQueue.AddPlaylist(from, to, speed, repeat, StringToWString(name));
         }
         else
         {
-            IsVoiceConnectionReady(message.msg.guild_id);
+            O_ASSERT(deleteIndex >= 0 && deleteIndex < m_TracksQueue.GetPlaylistsSize(), "Invalid delete index");
 
-            O_ASSERT(m_Player.GetDecodersCount() > 0, "Decoders are empty");
-
-            float speed = 0.f;
-            GetParamValue(params, "speed", speed);
-
-            O_ASSERT(speed > 0.f, "Speed cannot be lesser or equal to 0.");
-
-            m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed, 0);
+            m_TracksQueue.DeletePlaylist(deleteIndex);
         }
     }
-    void OrchestraDiscordBot::CommandShuffle(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+
+    void OrchestraDiscordBot::CommandSpeed(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
+        using namespace GuelderResourcesManager;
+
         IsVoiceConnectionReady(message.msg.guild_id);
 
         std::lock_guard queueLock{ m_TracksQueueMutex };
 
-        O_ASSERT(m_TracksQueue.GetSize() > 0, "The queue is empty.");
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The tracks queue size is 0.");
+        O_ASSERT(!value.empty(), "No speed value provided.");
 
-        m_TracksQueue.Shuffle(m_CurrentTrackIndex);
+        const float speed = StringToNumber<float>(value);
 
-        m_CurrentTrackIndex = 0;
+        O_ASSERT(speed > 0.f, "Invalid speed value");
+
+        const int fromParamIndex = GetParamIndex(params, "from");
+        int from = 0;
+        if(fromParamIndex != -1)
+            from = params[fromParamIndex].GetValue<int>();
+
+        const int toParamIndex = GetParamIndex(params, "to");
+        int to = m_TracksQueue.GetTracksSize() - 1;
+        if(toParamIndex != -1)
+            to = params[toParamIndex].GetValue<int>();
+
+        int playlistParamIndex = -1;
+
+        if(fromParamIndex == -1 && toParamIndex == -1)
+        {
+            playlistParamIndex = GetParamIndex(params, "playlist");
+
+            if(playlistParamIndex != -1)
+            {
+                int playlistIndex = GetParamValue<int>(params, playlistParamIndex);
+
+                if(playlistIndex == -1)
+                    playlistIndex = GetCurrentPlaylistIndex();
+
+                O_ASSERT(playlistIndex >= 0 && playlistIndex < m_TracksQueue.GetPlaylistsSize(), "Playlist index is invalid");
+
+                from = m_TracksQueue.GetPlaylistInfos()[playlistIndex].beginIndex;
+                to = m_TracksQueue.GetPlaylistInfos()[playlistIndex].endIndex;
+            }
+        }
+
+        if(fromParamIndex != -1 || toParamIndex != -1 || playlistParamIndex != -1)
+        {
+            O_ASSERT(from >= 0 && from < to && to < m_TracksQueue.GetTracksSize(), "\"from or \"to\" is outside of the range.");
+
+            if(from <= m_CurrentTrackIndex && to >= m_CurrentTrackIndex)
+            {
+                O_ASSERT(m_Player.IsDecoderReady(), "The Decoder is not ready.");
+                m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed);
+            }
+
+            for(int i = from; i <= to; i++)
+                m_TracksQueue.SetTrackSpeed(i, speed);
+        }
+        else
+        {
+            size_t index = m_CurrentTrackIndex;
+            GetParamValue(params, "index", index);
+
+            {
+                bool deleteMiddleTrack = false;
+                GetParamValue(params, "middle", deleteMiddleTrack);
+
+                if(deleteMiddleTrack)
+                    index = (m_TracksQueue.GetTracksSize() - 1) / 2;
+                else
+                {
+                    bool deleteLastTrack = false;
+                    GetParamValue(params, "last", deleteLastTrack);
+
+                    if(deleteLastTrack)
+                        index = m_TracksQueue.GetTracksSize() - 1;
+                }
+            }
+
+            O_ASSERT(index < m_TracksQueue.GetTracksSize(), "Invalid index.");
+
+            if(index == m_CurrentTrackIndex)
+            {
+                O_ASSERT(m_Player.IsDecoderReady(), "The Decoder is not ready.");
+                m_Player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed);
+            }
+
+            m_TracksQueue.SetTrackSpeed(index, speed);
+        }
+    }
+
+    void OrchestraDiscordBot::CommandBass(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        const Player::BassBoostSettings bassBoostSettings = m_Player.GetBassBoostSettings();
+
+        bool clear = false;
+        GetParamValue(params, "clear", clear);
+
+        if(clear)
+        {
+            m_Player.SetBassBoost(0.f, 0.f, 0.f);
+            return;
+        }
+
+        float decibelsBoost;
+
+        try
+        {
+            decibelsBoost = GuelderResourcesManager::StringToNumber<float>(value);
+        }
+        catch(...)
+        {
+            decibelsBoost = bassBoostSettings.decibelsBoost;
+        }
+
+        float frequency = bassBoostSettings.frequency;
+        GetParamValue(params, "hz", frequency);
+
+        float bandwidth = bassBoostSettings.bandwidth;
+        GetParamValue(params, "band", bandwidth);
+
+        if(decibelsBoost == bassBoostSettings.decibelsBoost && frequency == bassBoostSettings.frequency && bandwidth == bassBoostSettings.bandwidth)
+        {
+            std::string reply = Logger::Format("The Bass-Boost:\nBass-boost decibels: ", decibelsBoost, ".\nBass-boost frequency: ", frequency, "\nBass-boost bandwidth: ", bandwidth, "\n");
+
+            Reply(message, reply);
+        }
+
+        m_Player.SetBassBoost(decibelsBoost, frequency, bandwidth);
+    }
+
+    void OrchestraDiscordBot::CommandEqualizer(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        bool clear = false;
+        GetParamValue(params, "clear", clear);
+
+        if(clear)
+        {
+            m_Player.ClearEqualizer();
+            return;
+        }
+
+        bool addFrequency = false;
+
+        GetParamValue(params, "delete", addFrequency);
+
+        addFrequency = !addFrequency;
+
+        float frequency = 0.f;
+        int frequencyParamIndex = GetParamIndex(params, "hz");
+        if(frequencyParamIndex != -1)
+            frequency = GetParamValue<float>(params, frequencyParamIndex);
+
+        if(frequency != 0.f)
+            if(addFrequency)
+            {
+                float decibelsBoost = 0.f;
+
+                try
+                {
+                    decibelsBoost = GuelderResourcesManager::StringToNumber<float>(value);
+                }
+                catch(...) {}
+
+                m_Player.InsertOrAssignEqualizerFrequency(frequency, decibelsBoost);
+            }
+            else
+            {
+                m_Player.EraseEqualizerFrequency(frequency);
+            }
+        else
+        {
+            std::string reply;
+
+            if(m_Player.GetEqualizerFrequencies().empty())
+                reply = "The Equalizer is empty.";
+            else
+            {
+                reply = Logger::Format("The Equalizer. The Size: ", m_Player.GetEqualizerFrequencies().size(), ".\n");
+
+                for(const auto& [_frequency, decibels] : m_Player.GetEqualizerFrequencies())
+                    reply += Logger::Format('\n', _frequency, "hz - ", decibels, "db;");
+            }
+
+            Reply(message, reply);
+        }
+    }
+
+    //the code is almost the same as in CommandSpeed
+    void OrchestraDiscordBot::CommandRepeat(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        using namespace GuelderResourcesManager;
+
+        //IsVoiceConnectionReady(message.msg.guild_id);
+
+        std::lock_guard queueLock{ m_TracksQueueMutex };
+
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The tracks queue size is 0.");
+        O_ASSERT(!value.empty(), "No speed value provided.");
+
+        int repeatCount = StringToNumber<int>(value);
+
+        O_ASSERT(repeatCount != 0, "Invalid repetCount value, repeatCount is 0.");
+
+        if(repeatCount < 0)
+            repeatCount = std::numeric_limits<int>::max();
+
+        const int fromParamIndex = GetParamIndex(params, "from");
+        int from = 0;
+        if(fromParamIndex != -1)
+            from = params[fromParamIndex].GetValue<int>();
+
+        const int toParamIndex = GetParamIndex(params, "to");
+        int to = m_TracksQueue.GetTracksSize() - 1;
+        if(toParamIndex != -1)
+            to = params[toParamIndex].GetValue<int>();
+
+        int playlistParamIndex = -1;
+        int playlistIndex;
+
+        if(fromParamIndex == -1 && toParamIndex == -1)
+        {
+            playlistParamIndex = GetParamIndex(params, "playlist");
+
+            if(playlistParamIndex != -1)
+            {
+                playlistIndex = GetParamValue<int>(params, playlistParamIndex);
+
+                if(playlistIndex == -1)
+                    playlistIndex = GetCurrentPlaylistIndex();
+
+                O_ASSERT(playlistIndex >= 0 && playlistIndex < m_TracksQueue.GetPlaylistsSize(), "Playlist index is invalid");
+            }
+        }
+
+        if(fromParamIndex != -1 || toParamIndex != -1 || playlistParamIndex != -1)
+        {
+            O_ASSERT(from >= 0 && from < to && to < m_TracksQueue.GetTracksSize(), "\"from or \"to\" is outside of the range.");
+
+            if(playlistParamIndex == -1)
+                for(int i = from; i <= to; i++)
+                    m_TracksQueue.SetTrackRepeatCount(i, repeatCount);
+            else
+                m_TracksQueue.SetPlaylistRepeatCount(playlistIndex, repeatCount);
+        }
+        else
+        {
+            size_t index = m_CurrentTrackIndex;
+            GetParamValue(params, "index", index);
+
+            {
+                bool deleteMiddleTrack = false;
+                GetParamValue(params, "middle", deleteMiddleTrack);
+
+                if(deleteMiddleTrack)
+                    index = (m_TracksQueue.GetTracksSize() - 1) / 2;
+                else
+                {
+                    bool deleteLastTrack = false;
+                    GetParamValue(params, "last", deleteLastTrack);
+
+                    if(deleteLastTrack)
+                        index = m_TracksQueue.GetTracksSize() - 1;
+                }
+            }
+
+            O_ASSERT(index < m_TracksQueue.GetTracksSize(), "Invalid index.");
+
+            m_TracksQueue.SetTrackRepeatCount(index, repeatCount);
+        }
+    }
+
+    void OrchestraDiscordBot::CommandInsert(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        //IsVoiceConnectionReady(message.msg.guild_id);
+
+        std::lock_guard lock{ m_TracksQueueMutex };
+
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The queue is empty!");
+
+        int after = m_CurrentTrackIndex + 1;
+
+        if(const int afterParamIndex = GetParamIndex(params, "after"); afterParamIndex != -1)
+        {
+            after = GetParamValue<int>(params, afterParamIndex);
+
+            if(after < 0 || after > m_TracksQueue.GetTracksSize())
+                after = m_CurrentTrackIndex;
+
+            if(after != 0)
+                after++;
+        }
+
+        AddToQueue(message, params, value, after);
+    }
+
+    void OrchestraDiscordBot::CommandTransfer(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        std::lock_guard queueLock{ m_TracksQueueMutex };
+
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The tracks queue is empty.");
+
+        const int targetIndex = GuelderResourcesManager::StringToNumber<int>(value);
+
+        int to = -1;
+
+        GetParamValue(params, "to", to);
+
+        if(to == -1)
+        {
+            const int middleParamIndex = GetParamIndex(params, "middle");
+            if(middleParamIndex >= 0)
+                to = (m_TracksQueue.GetTracksSize() - 1) / 2;
+            else
+                to = m_TracksQueue.GetTracksSize() - 1;
+        }
+        else
+            if(to >= m_TracksQueue.GetTracksSize())
+                to = m_TracksQueue.GetTracksSize() - 1;
+
+        O_ASSERT(to >= 0 && targetIndex != to, "Invalid after index.");
+
+        if(targetIndex == m_CurrentTrackIndex)
+            m_CurrentTrackIndex = to;
+
+        m_TracksQueue.TransferTrack(targetIndex, to);
+    }
+
+    void OrchestraDiscordBot::CommandShuffle(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    {
+        //IsVoiceConnectionReady(message.msg.guild_id);
+
+        std::lock_guard queueLock{ m_TracksQueueMutex };
+
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The queue is empty.");
+
+        int playlistIndex = -1;
+        GetParamValue(params, "playlist", playlistIndex);
+
+        int from = 0;
+        int to = m_TracksQueue.GetTracksSize() - 1;
+
+        if(playlistIndex >= 0)
+        {
+            O_ASSERT(playlistIndex < m_TracksQueue.GetPlaylistsSize(), "Invalid playlist index.");
+
+            from = m_TracksQueue.GetPlaylistInfo(playlistIndex).beginIndex;
+            to = m_TracksQueue.GetPlaylistInfo(playlistIndex).endIndex;
+        }
+        else
+        {
+            GetParamValue(params, "from", from);
+            GetParamValue(params, "to", to);
+        }
+
+        const bool isCurrentTrackInScope = m_CurrentTrackIndex >= from && m_CurrentTrackIndex <= to;
+
+        m_TracksQueue.Shuffle(from, to+1, (isCurrentTrackInScope ? m_CurrentTrackIndex.load() : std::numeric_limits<size_t>::max()));
+
+        if(isCurrentTrackInScope)
+            m_CurrentTrackIndex = from;
     }
     void OrchestraDiscordBot::CommandDelete(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
-        O_ASSERT(m_TracksQueue.GetSize() > 0, "The queue is empty.");
+        O_ASSERT(m_TracksQueue.GetTracksSize() > 0, "The queue is empty.");
 
         size_t index = (value.empty() ? std::numeric_limits<size_t>::max() : GuelderResourcesManager::StringToNumber<size_t>(value));
         const dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
@@ -647,21 +1139,21 @@ namespace Orchestra
                 GetParamValue(params, "middle", deleteMiddleTrack);
 
                 if(deleteMiddleTrack)
-                    index = m_TracksQueue.GetSize() / 2;
+                    index = (m_TracksQueue.GetTracksSize() - 1) / 2;
                 else
                 {
                     bool deleteLastTrack = false;
                     GetParamValue(params, "last", deleteLastTrack);
 
                     if(deleteLastTrack)
-                        index = m_TracksQueue.GetSize() - 1;
+                        index = m_TracksQueue.GetTracksSize() - 1;
                 }
             }
         }
 
         if(index != std::numeric_limits<size_t>::max())
         {
-            O_ASSERT(index < m_TracksQueue.GetSize(), "The index is bigger than the last item of queue with index ", m_TracksQueue.GetSize() - 1);
+            O_ASSERT(index < m_TracksQueue.GetTracksSize(), "The index is bigger than the last item of queue with index ", m_TracksQueue.GetTracksSize() - 1);
 
             if(m_CurrentTrackIndex == index)
             {
@@ -673,6 +1165,9 @@ namespace Orchestra
             //if(m_CurrentTrackIndex > 0)
                 //--m_CurrentTrackIndex;
 
+            if(index < m_CurrentTrackIndex)
+                --m_CurrentTrackIndex;
+
             m_TracksQueue.DeleteTrack(index);
         }
         else
@@ -683,19 +1178,26 @@ namespace Orchestra
                 from = params[fromParamIndex].GetValue<int>();
 
             const int toParamIndex = GetParamIndex(params, "to");
-            int to = m_TracksQueue.GetSize() - 1;
+            int to = m_TracksQueue.GetTracksSize() - 1;
             if(toParamIndex != -1)
                 to = params[toParamIndex].GetValue<int>();
 
             if(fromParamIndex == -1 && toParamIndex == -1)
             {
                 int playlistIndexToDelete = std::numeric_limits<int>::max();
-                GetParamValue(params, "playlist", playlistIndexToDelete);
+                try
+                {
+                    GetParamValue(params, "playlist", playlistIndexToDelete);
+                }
+                catch(...)
+                {
+                    playlistIndexToDelete = GetCurrentPlaylistIndex();
+                }
 
-                if(playlistIndexToDelete == -1)
-                    playlistIndexToDelete = 0;
+                //if(playlistIndexToDelete == -1)
+                    //playlistIndexToDelete = 0;
 
-                O_ASSERT(playlistIndexToDelete < m_TracksQueue.GetPlaylistInfos().size() && playlistIndexToDelete >= 0, "The playlist index is invalid.");
+                O_ASSERT(playlistIndexToDelete < m_TracksQueue.GetPlaylistsSize() && playlistIndexToDelete >= 0, "The playlist index is invalid.");
 
                 const PlaylistInfo& playlistInfo = m_TracksQueue.GetPlaylistInfos()[playlistIndexToDelete];
 
@@ -704,7 +1206,7 @@ namespace Orchestra
             }
 
             //O_ASSERT(fromParamIndex != -1 || toParamIndex != -1, "The command is empty, nothing to execute.");
-            O_ASSERT(from >= 0 && from < m_TracksQueue.GetSize() - 1 && to > 0 && to <= m_TracksQueue.GetSize() - 1, "\"from or \"to\" is outside of the range.");
+            O_ASSERT(from >= 0 && from < to && to < m_TracksQueue.GetTracksSize(), "\"from or \"to\" is outside of the range.");
 
             const bool isCurrentTrackInRange = m_CurrentTrackIndex >= from && m_CurrentTrackIndex <= to;
 
@@ -715,6 +1217,8 @@ namespace Orchestra
 
                 m_CurrentTrackIndex = from;
             }
+            else if(to < m_CurrentTrackIndex)
+                m_CurrentTrackIndex -= to - from + 1;
 
             m_TracksQueue.DeleteTracks(from, to);
         }
@@ -728,10 +1232,6 @@ namespace Orchestra
         m_IsStopped = true;
 
         m_CurrentTrackIndex = std::numeric_limits<uint32_t>::max();
-        /*{
-            std::lock_guard lock{ m_TracksQueueMutex };
-            m_TracksQueue.Clear();
-        }*/
 
         v->voiceclient->pause_audio(m_Player.GetIsPaused());
         v->voiceclient->stop_audio();
@@ -748,12 +1248,13 @@ namespace Orchestra
     void OrchestraDiscordBot::CommandSkip(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
         const dpp::voiceconn* v = IsVoiceConnectionReady(message.msg.guild_id);
-        {
-            std::lock_guard queueLock{ m_TracksQueueMutex };
-            O_ASSERT(m_TracksQueue.GetSize() != 0, "The tracks queue is empty.");
-        }
+
+        std::lock_guard queueLock{ m_TracksQueueMutex };
+
+        O_ASSERT(m_TracksQueue.GetTracksSize() != 0, "The tracks queue is empty.");
+
         //not sure about this one
-        O_ASSERT(m_Player.GetDecodersCount() != 0, "Decoders are empty.");
+        //O_ASSERT(m_Player.GetDecodersCount() != 0, "Decoders are empty.");
 
         //ugly shit
         bool skipPlaylist = false;
@@ -786,12 +1287,11 @@ namespace Orchestra
         if(!skipPlaylist && toindex < 0 && inindex == 0 && !skipToMiddle && !skipToLast && tosecsIndex == -1)
             GetParamValue(params, "secs", secs);
 
-        bool skip = true;
+        bool skip = m_Player.IsDecoderReady() > 0;
         int skipToIndex = m_CurrentTrackIndex;
 
         if(skipPlaylist)
         {
-            std::lock_guard queueLock{ m_TracksQueueMutex };
             bool found = false;
             for(const auto& playlistInfo : m_TracksQueue.GetPlaylistInfos())
             {
@@ -809,37 +1309,33 @@ namespace Orchestra
         }
         else if(toindex != -1)
         {
-            std::lock_guard queueLock{ m_TracksQueueMutex };
-            O_ASSERT(toindex >= 0 && toindex < m_TracksQueue.GetSize(), "Parameter \"toindex\" is invalid.");
+            O_ASSERT(toindex >= 0 && toindex < m_TracksQueue.GetTracksSize(), "Parameter \"toindex\" is invalid.");
 
             skipToIndex = toindex;
         }
         else if(inindex != 0)
         {
-            std::lock_guard queueLock{ m_TracksQueueMutex };
-            O_ASSERT(m_CurrentTrackIndex + inindex < m_TracksQueue.GetSize(), "Parameter \"inindex\" is invalid.");
+            O_ASSERT(m_CurrentTrackIndex + inindex < m_TracksQueue.GetTracksSize(), "Parameter \"inindex\" is invalid.");
 
             skipToIndex = m_CurrentTrackIndex + inindex;
         }
         else if(skipToMiddle)
         {
-            std::lock_guard lockCurrentTrack{ m_TracksQueueMutex };
-            skipToIndex = m_TracksQueue.GetSize() / 2;
+            skipToIndex = (m_TracksQueue.GetTracksSize() - 1) / 2;
         }
         else if(skipToLast)
         {
-            std::lock_guard lockCurrentTrack{ m_TracksQueueMutex };
-            skipToIndex = m_TracksQueue.GetSize() - 1;
+            skipToIndex = m_TracksQueue.GetTracksSize() - 1;
         }
         else if(tosecsIndex != -1)
         {
             skip = false;
-            m_Player.SkipToSeconds(tosecs, 0);
+            m_Player.SkipToSeconds(tosecs);
         }
         else if(secs != 0.f)
         {
             skip = false;
-            m_Player.SkipSeconds(secs - v->voiceclient->get_secs_remaining(), 0);
+            m_Player.SkipSeconds(secs - v->voiceclient->get_secs_remaining());
         }
         else
             skipToIndex++;
@@ -881,29 +1377,13 @@ namespace Orchestra
         else
             Reply(message, "You are not an admin!");
     }
-
+}
+namespace Orchestra
+{
     void OrchestraDiscordBot::ConnectToMemberVoice(const dpp::message_create_t& message)
     {
         if(!dpp::find_guild(message.msg.guild_id)->connect_member_voice(message.msg.author.id))
             O_THROW("The user with id ", message.msg.author.id.str(), " is not in a voice channel.");
-    }
-
-    void OrchestraDiscordBot::ReplyWithMessage(const dpp::message_create_t& message, const dpp::message& reply)
-    {
-        message.reply(reply);
-    }
-
-    void OrchestraDiscordBot::SendEmbedsSequentially(const dpp::message_create_t& event, const std::vector<dpp::embed>& embeds, size_t index)
-    {
-        if(index >= embeds.size()) return;
-
-        dpp::message msg(event.msg.channel_id, "");
-        msg.add_embed(embeds[index]);
-
-        message_create(msg, [event, embeds, index, this](const dpp::confirmation_callback_t& cb) {
-            if(!cb.is_error())
-                SendEmbedsSequentially(event, embeds, index + 1);
-            });
     }
 
     void OrchestraDiscordBot::WaitUntilJoined(const std::chrono::milliseconds& delay)
@@ -916,12 +1396,12 @@ namespace Orchestra
     {
         dpp::voiceconn* voice = get_shard(0)->get_voice(guildSnowflake);
 
-        O_ASSERT(m_IsJoined && voice || voice->voiceclient || voice->voiceclient->is_ready(), "Failed to establish connection to a voice channel in a guild with id ", guildSnowflake);
+        O_ASSERT(m_IsJoined && (voice || voice->voiceclient || voice->voiceclient->is_ready()), "Failed to establish connection to a voice channel in a guild with id ", guildSnowflake);
 
         return voice;
     }
 
-    void OrchestraDiscordBot::AddTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
+    void OrchestraDiscordBot::AddToQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value, size_t insertIndex)
     {
         struct PlayParams
         {
@@ -935,6 +1415,11 @@ namespace Orchestra
             bool doShuffle = false;
         };
 
+        const size_t queueTracksSizeBefore = m_TracksQueue.GetTracksSize();
+
+        if(insertIndex > m_TracksQueue.GetTracksSize())
+            insertIndex = std::numeric_limits<size_t>::max();
+
         PlayParams playParams{};
 
         //as urls may contain non-English letters
@@ -943,6 +1428,11 @@ namespace Orchestra
         GE_LOG(Orchestra, Info, L"Received music value: ", wValue);
 
         GetParamValue(params, "raw", playParams.isRaw);
+
+        GetParamValue(params, "speed", playParams.speed);
+        GetParamValue(params, "repeat", playParams.repeat);
+        if(playParams.repeat < 0)
+            playParams.repeat = std::numeric_limits<int>::max();
 
         if(!playParams.isRaw)
         {
@@ -962,11 +1452,6 @@ namespace Orchestra
             else
                 isUsingSearch = foundSearchEngine;
 
-            GetParamValue(params, "speed", playParams.speed);
-            GetParamValue(params, "repeat", playParams.repeat);
-            if(playParams.repeat < 0)
-                playParams.repeat = std::numeric_limits<int>::max();
-
             //making a command for yt-dlp
             if(isUsingSearch)
             {
@@ -980,40 +1465,67 @@ namespace Orchestra
                     searchEngine = StringToSearchEngine(playParams.searchEngine);
                 }
 
-                m_TracksQueue.FetchSearch(wValue, searchEngine, playParams.speed, playParams.repeat);
+                m_TracksQueue.FetchSearch(wValue, searchEngine, playParams.speed, playParams.repeat, insertIndex);
             }
             else
             {
                 GetParamValue(params, "shuffle", playParams.doShuffle);
-                //try
-                //{
-                m_TracksQueue.FetchURL(wValue, playParams.doShuffle, playParams.speed, static_cast<size_t>(playParams.repeat));
-                //}
-                //catch(const OrchestraException& e)
-                //{
-                //    //probably raw
-                //    playParams.isRaw = true;
-                //    if(!IsValidURL(value.data()) && message.msg.author.id != m_AdminSnowflake)
-                //    {
-                //        //Reply(message, "You don't have permission to access admin's local files.");
 
-                //        O_THROW("The user tried to access admin's file, while not being the admin.");
-                //    }
-
-                //    m_TracksQueue.FetchRaw(value);
-                //}
+                m_TracksQueue.FetchURL(wValue, playParams.doShuffle, playParams.speed, static_cast<size_t>(playParams.repeat), insertIndex);
             }
         }
         else
         {
-            if(!IsValidURL(value.data()) && message.msg.author.id != m_AdminSnowflake)
-                //Reply(message, "You don't have permission to access admin's local files.");
-                O_THROW("The user tried to access admin's file, while not being the admin.");
+            O_ASSERT(/*IsValidURL(value.data()) && */message.msg.author.id == m_AdminSnowflake, "The user tried to access admin's file, while not being the admin.");
 
-            m_TracksQueue.FetchRaw(value);
+            m_TracksQueue.FetchRaw(value, playParams.speed, playParams.repeat, insertIndex);
         }
 
-        //return playParams;
+        if(insertIndex <= m_CurrentTrackIndex)
+            m_CurrentTrackIndex += m_TracksQueue.GetTracksSize() - queueTracksSizeBefore;
+    }
+
+    void OrchestraDiscordBot::ReplyWithMessage(const dpp::message_create_t& message, const dpp::message& reply)
+    {
+        message.reply(reply);
+    }
+    void OrchestraDiscordBot::SendEmbedsSequentially(const dpp::message_create_t& event, const std::vector<dpp::embed>& embeds, size_t index)
+    {
+        if(index >= embeds.size()) return;
+
+        dpp::message msg(event.msg.channel_id, "");
+        msg.add_embed(embeds[index]);
+
+        message_create(msg, [event, embeds, index, this](const dpp::confirmation_callback_t& cb) {
+            if(!cb.is_error())
+                SendEmbedsSequentially(event, embeds, index + 1);
+            });
+    }
+
+    uint32_t OrchestraDiscordBot::GetCurrentPlaylistIndex()
+    {
+        if(m_CurrentPlaylistIndex == std::numeric_limits<uint32_t>::max())
+        {
+            bool found = false;
+            for(size_t j = 0; j < m_TracksQueue.GetPlaylistsSize(); j++)
+            {
+                const PlaylistInfo& playlistInfo = m_TracksQueue.GetPlaylistInfos()[j];
+
+                const bool isInRange = m_CurrentTrackIndex >= playlistInfo.beginIndex && m_CurrentTrackIndex <= playlistInfo.endIndex;
+
+                if(isInRange)
+                {
+                    found = true;
+                    m_CurrentPlaylistIndex = j;
+
+                    break;
+                }
+            }
+            if(!found)
+                m_CurrentPlaylistIndex = std::numeric_limits<uint32_t>::max();
+        }
+
+        return m_CurrentPlaylistIndex;
     }
 
     void OrchestraDiscordBot::ReplyWithInfoAboutTrack(const dpp::message_create_t& message, const TrackInfo& trackInfo, const bool& outputURL, const bool& printCurrentTimestamp)
@@ -1030,10 +1542,15 @@ namespace Orchestra
         if(printCurrentTimestamp)
         {
             const dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
-            description += Logger::Format(L"Current timestamp: ", m_Player.GetCurrentDecodingDurationSeconds() - voice->voiceclient->get_secs_remaining(), " seconds.\n");
+            description += Logger::Format(L"Current timestamp: ", m_Player.GetCurrentTimestamp() - voice->voiceclient->get_secs_remaining(), " seconds.\n");
         }
+        /*if(m_Player.GetBassBoostSettings().decibelsBoost)
+        {
+            auto [boost, freq, band] = m_Player.GetBassBoostSettings();
+            description += Logger::Format(L"Bass-boost decibels: ", boost, L".\nBass-boost frequency: ", freq, L"\nBass-boost bandwidth: ", band, "\n");
+        }*/
         if(trackInfo.speed != 1.f)
-            description += Logger::Format(L"The speed: ", trackInfo.speed, ". The duration with speed applied: ", trackInfo.duration * trackInfo.speed, L" seconds.\n");
+            description += Logger::Format(L"The speed: ", trackInfo.speed, ".\nThe duration with speed applied: ", trackInfo.duration * trackInfo.speed, L" seconds.\n");
         if(trackInfo.repeat > 1)
             description += Logger::Format(L"Repeat count: ", trackInfo.repeat, L".\n");
 

@@ -104,38 +104,49 @@ namespace Orchestra
     }
     TrackInfo Yt_DlpManager::GetTrackInfo(const size_t& index, const bool& lookForRawURL) const
     {
-        if(IsReady())
+        O_ASSERT(IsReady(), "Yt-dlpManager does not have a proper JSON. IsReady() == false.");
+
+        if(m_IsPlaylist)
         {
-            if(m_IsPlaylist)
-            {
-                using namespace GuelderConsoleLog;
+            using namespace GuelderConsoleLog;
 
-                O_ASSERT(index < m_PlaylistSize, "The input index ", index, " is bigger than the last element of the playlist with index ", m_PlaylistSize - 1);
+            O_ASSERT(index < m_PlaylistSize, "The input index ", index, " is bigger than the last element of the playlist with index ", m_PlaylistSize - 1);
 
-                const auto itEntries = m_JSONValue->FindMember(L"entries");
-                auto playlist = itEntries->value.GetArray();
+            const auto itEntries = m_JSONValue->FindMember(L"entries");
+            auto playlist = itEntries->value.GetArray();
 
-                auto itTrack = (playlist.Begin() + index);
+            auto itTrack = (playlist.Begin() + index);
 
-                //O_ASSERT(itTrack != playlist.End(), "itTrack == playlist.End(). Something went compeletely wrong...");
+            //O_ASSERT(itTrack != playlist.End(), "itTrack == playlist.End(). Something went compeletely wrong...");
 
-                TrackInfo trackInfo = RetrieveBasicTrackInfo(*itTrack, m_IsPlaylist);
+            TrackInfo trackInfo = RetrieveBasicTrackInfo(*itTrack, m_IsPlaylist);
 
-                if(lookForRawURL)
-                    trackInfo.rawURL = RetrieveFullTrackInfo(RetrieveJSONFromYt_dlp(m_Yt_dlpPath, trackInfo.URL, false), false).rawURL;
+            if(lookForRawURL)
+                trackInfo.rawURL = RetrieveFullTrackInfo(RetrieveJSONFromYt_dlp(m_Yt_dlpPath, trackInfo.URL, false), false).rawURL;
 
-                return trackInfo;
-            }
-            else
-            {
-                if(lookForRawURL)
-                    return RetrieveFullTrackInfo(*m_JSONValue, false);
-                else
-                    return RetrieveBasicTrackInfo(*m_JSONValue, false);
-            }
+            return trackInfo;
         }
+        else
+        {
+            if(lookForRawURL)
+                return RetrieveFullTrackInfo(*m_JSONValue, false);
+            else
+                return RetrieveBasicTrackInfo(*m_JSONValue, false);
+        }
+    }
 
-        O_THROW("Yt-dlpManager does not have a proper JSON. IsReady() == false.");
+    std::wstring Yt_DlpManager::GetPlaylistName() const
+    {
+        O_ASSERT(m_JSONValue, "The m_JSONValue == nullptr.");
+        O_ASSERT(m_IsPlaylist, "The m_JSONValue is not a playlist.");
+
+        O_ASSERT(m_JSONValue->IsObject(), "m_JSONValue->IsObject() == false.");
+        const auto itTitle = m_JSONValue->FindMember(L"title");
+
+        O_ASSERT(itTitle != m_JSONValue->MemberEnd(), "Failed to find title in a playlist.");
+        O_ASSERT(itTitle->value.IsString(), "The title of the playlist is not a string.");
+
+        return itTitle->value.GetString();
     }
 
     void Yt_DlpManager::Reset()
@@ -205,7 +216,7 @@ namespace Orchestra
             out.duration = GetFromJSON<int>(JSON, L"duration");
         }
 
-        out.playlistIndex = 0;
+        out.uniqueIndex = 0;
         out.speed = 0;
         out.repeat = 1;
 
@@ -215,7 +226,7 @@ namespace Orchestra
     TrackInfo Yt_DlpManager::RetrieveFullTrackInfo(const WGenericValue& rawJSON, const bool& isPlaylist)
     {
         //raw URL
-        
+
         const auto formats = GetFromJSON<WJSON::ConstArray>(rawJSON, L"formats");
 
         for(const auto& format : formats)

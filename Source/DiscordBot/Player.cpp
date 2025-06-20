@@ -20,8 +20,8 @@ extern "C"
 
 namespace Orchestra
 {
-    Player::Player(const uint32_t& sentPacketsSize, const bool& enableLazyDecoding, const bool& enableLogSentPackets)
-        : m_SentPacketSize(sentPacketsSize), m_EnableLogSentPackets(enableLogSentPackets) {}
+    Player::Player(const uint32_t& sentPacketsSize, const bool& enableLogSentPackets)
+        : m_SentPacketSize(sentPacketsSize), m_EnableLogSentPackets(enableLogSentPackets), m_BassBoostSettings(0.f, 0.f, 0.f) {}
 
     void Player::LazyDecodingCheck(const std::chrono::milliseconds& toWait, std::unique_lock<std::mutex>& pauseLock, const std::chrono::milliseconds& sleepFor)
     {
@@ -39,15 +39,18 @@ namespace Orchestra
             std::this_thread::sleep_for(sleepFor);
         }
     }
-    void Player::DecodeAndSendAudio(const dpp::voiceconn* voice, const size_t& index)
+    void Player::DecodeAndSendAudio(const dpp::voiceconn* voice)
     {
-        O_ASSERT(!m_Decoders.empty(), "m_Decoders is empty.");
+        O_ASSERT(m_Decoder.IsReady(), "m_Decoder is not ready.");
 
-        m_CurrentDecodingDuration = 0;
+        //if(!m_BassBoostSettings.IsEmpty() && !m_Decoder.IsBassBoostActive())
+        m_Decoder.SetBassBoost(m_BassBoostSettings.decibelsBoost, m_BassBoostSettings.frequency, m_BassBoostSettings.bandwidth);
+        m_Decoder.SetEqualizer(m_EqualizerFrequencies);
 
-        const Decoder& decoder = m_Decoders[index];
+        //TODO: put this into config.txt
+        constexpr float waitFactor = .9f;
 
-        GE_LOG(Orchestra, Info, "Total duration of audio: ", decoder.GetTotalDurationSeconds(), "s.");
+        GE_LOG(Orchestra, Info, "Total duration of audio: ", m_Decoder.GetTotalDurationSeconds(), "s.");
 
         std::vector<uint8_t> buffer;
         buffer.reserve(m_SentPacketSize);
@@ -67,7 +70,7 @@ namespace Orchestra
         constexpr int initialSampleRate = Decoder::DEFAULT_SAMPLE_RATE;
         m_PreviousSampleRate = initialSampleRate;
 
-        while(decoder.AreThereFramesToProcess())
+        while(m_Decoder.AreThereFramesToProcess())
         {
             std::unique_lock pauseLock{ m_PauseMutex };
             m_PauseCondition.wait(pauseLock, [this] { return m_IsPaused == false; });
@@ -75,7 +78,9 @@ namespace Orchestra
             if(!m_IsDecoding)
                 break;
 
-            auto out = decoder.DecodeAudioFrame();
+            std::unique_lock decodingLock{ m_DecodingMutex };
+            auto out = m_Decoder.DecodeAudioFrame();
+            decodingLock.unlock();
 
             buffer.insert(buffer.end(), out.begin(), out.end());
 
@@ -86,49 +91,49 @@ namespace Orchestra
             {
                 //TODO: make so that when I call !skip -secs to skip this loop and start decoding
                 //I need to call from discord stop and proceed to decoding
-                if(!m_IsSkippingFrames && !m_IsChangingSampleRate)
+                if(!m_IsSkippingFrames && !m_ShouldReturnToCurrentTimestamp)
                 {
-                    LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 }, pauseLock);
+                    LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * waitFactor) * 1000 }, pauseLock);
 
                     if(!m_IsDecoding)
                         break;
                 }
                 else
                 {
-                    //if(!m_IsChangingSampleRate)
+                    //if(!m_ShouldReturnToCurrentTimestamp)
                         //voice->voiceclient->stop_audio();
                     m_IsSkippingFrames = false;
                 }
 
-                const float sampleRateRatio = static_cast<float>(initialSampleRate) / decoder.GetOutSampleRate();
+                const float sampleRateRatio = static_cast<float>(initialSampleRate) / m_Decoder.GetOutSampleRate();
                 const float prevSampleRateRatio = static_cast<float>(initialSampleRate) / m_PreviousSampleRate;
 
                 if(!m_IsSkippingFrames)
                 {
-                    if(m_IsChangingSampleRate)
+                    if(m_ShouldReturnToCurrentTimestamp)
                     {
                         voice->voiceclient->stop_audio();
-                        m_IsChangingSampleRate = false;
+                        m_ShouldReturnToCurrentTimestamp = false;
                     }
 
                     voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
 
                     totalSentSize += buffer.size();
                     currentSentDuration = voice->voiceclient->get_secs_remaining();
-                    m_CurrentDecodingDuration += currentSentDuration * sampleRateRatio;
+                    m_CurrentTimestamp += currentSentDuration * sampleRateRatio;
 
                     //GE_LOG(Orchestra, Warning, "sampleRateRatio = ", sampleRateRatio, "; totalDuration = ", totalDuration, "; currentSentDuration = ", currentSentDuration);
 
                     if(m_EnableLogSentPackets)
                         GE_LOG(Orchestra, Info, "Sent ", buffer.size(), " bytes of data; totalNumberOfReadings: ", totalReads, " for; sent data lasts for ", currentSentDuration, "s.");
                 }
-                else if(m_IsChangingSampleRate)
+                else if(m_ShouldReturnToCurrentTimestamp)
                 {
 
                     const float remainingSeconds = voice->voiceclient->get_secs_remaining();
-                    m_CurrentDecodingDuration -= remainingSeconds * prevSampleRateRatio;
-                    GE_LOG(Orchestra, Warning, "prevSampleRateRatio = ", prevSampleRateRatio, "; totalDuration = ", m_CurrentDecodingDuration, "; remainingSeconds = ", remainingSeconds, "; currentTimestamp in secs", static_cast<float>(decoder.GetCurrentTimestamp()) * decoder.GetTimestampToSecondsRatio());
-                    decoder.SkipToSeconds(m_CurrentDecodingDuration);
+                    m_CurrentTimestamp -= remainingSeconds * prevSampleRateRatio;
+                    GE_LOG(Orchestra, Warning, "prevSampleRateRatio = ", prevSampleRateRatio, "; totalDuration = ", m_CurrentTimestamp, "; remainingSeconds = ", remainingSeconds, "; currentTimestamp in secs", static_cast<float>(m_Decoder.GetCurrentTimestamp()) * m_Decoder.GetTimestampToSecondsRatio());
+                    m_Decoder.SkipToSeconds(m_CurrentTimestamp);
                 }
 
                 buffer.clear();
@@ -143,14 +148,16 @@ namespace Orchestra
             std::unique_lock pauseLock{ m_PauseMutex };
             m_PauseCondition.wait(pauseLock, [this] { return m_IsPaused == false; });
 
-            LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * .95f) * 1000 }, pauseLock);
+            LazyDecodingCheck(std::chrono::milliseconds{ static_cast<int>(voice->voiceclient->get_secs_remaining() * waitFactor) * 1000 }, pauseLock);
 
             if(m_IsDecoding)
             {
                 voice->voiceclient->send_audio_raw(reinterpret_cast<uint16_t*>(buffer.data()), buffer.size());
 
+                const float sampleRateRatio = static_cast<float>(initialSampleRate) / m_Decoder.GetOutSampleRate();
+
                 totalSentSize += buffer.size();
-                m_CurrentDecodingDuration += voice->voiceclient->get_secs_remaining();
+                m_CurrentTimestamp += voice->voiceclient->get_secs_remaining() * sampleRateRatio;
 
                 if(m_EnableLogSentPackets)
                     GE_LOG(Orchestra, Info, "Sent ", buffer.size(), " last bytes of data that lasts for ", voice->voiceclient->get_secs_remaining(), "s.");
@@ -158,35 +165,16 @@ namespace Orchestra
         }
 
         m_IsDecoding = false;
-        m_CurrentDecodingDuration = 0;
+        m_CurrentTimestamp = 0.f;
+        m_PreviousSampleRate = 0;
 
         if(m_EnableLogSentPackets)
-            GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", m_CurrentDecodingDuration, '.');
-    }
-
-    void Player::AddDecoder(const std::string_view& url, const uint32_t& sampleRate, const size_t& pos)
-    {
-        m_Decoders.emplace(m_Decoders.begin() + pos, url, AV_SAMPLE_FMT_S16, sampleRate);
-    }
-    void Player::AddDecoderBack(const std::string_view& url, const uint32_t& sampleRate)
-    {
-        m_Decoders.emplace_back(url, AV_SAMPLE_FMT_S16, sampleRate);
-    }
-
-    void Player::DeleteAudio(const size_t& index)
-    {
-        m_Decoders.erase(m_Decoders.begin() + index);
-    }
-    void Player::DeleteAllAudio()
-    {
-        m_Decoders.clear();
+            GE_LOG(Orchestra, Info, "Playback finished. Total number of reads: ", totalReads, " reads. Total size of sent data: ", totalSentSize, ". Total sent duration: ", m_CurrentTimestamp, '.');
     }
 
     void Player::Stop()
     {
         Pause(true);
-
-        DeleteAllAudio();
 
         m_IsDecoding = false;
         m_IsPaused = false;
@@ -207,35 +195,136 @@ namespace Orchestra
         m_PauseCondition.notify_all();
     }
 
-    void Player::SkipToSeconds(const float& seconds, const size_t& index)
+    void Player::SkipToSeconds(const float& seconds)
     {
-        m_Decoders[index].SkipToSeconds(seconds);
-        m_CurrentDecodingDuration = seconds;
+        m_Decoder.SkipToSeconds(seconds);
+        m_CurrentTimestamp = seconds;
         m_IsSkippingFrames = true;
     }
-    void Player::SkipSeconds(const float& seconds, const size_t& index)
+    void Player::SkipSeconds(const float& seconds)
     {
-        m_CurrentDecodingDuration += seconds;
-        m_Decoders[index].SkipToSeconds(m_CurrentDecodingDuration);
+        m_CurrentTimestamp += seconds;
+        m_Decoder.SkipToSeconds(m_CurrentTimestamp);
         m_IsSkippingFrames = true;
     }
 
-    void Player::Reserve(const size_t& capacity)
+    void Player::SetDecoder(const std::string_view& url, const uint32_t& sampleRate)
     {
-        m_Decoders.reserve(capacity);
+        m_Decoder = Decoder{ url, sampleRate };
     }
 
-    void Player::SetAudioSampleRate(const uint32_t& sampleRate, const size_t& index)
+    void Player::ResetDecoder()
+    {
+        m_Decoder.Reset();
+    }
+    bool Player::IsDecoderReady() const
+    {
+        return m_Decoder.IsReady();
+    }
+
+    void Player::SetBassBoost(const float& decibelsBoost, const float& frequencyToAdjust, const float& bandwidth)
+    {
+        std::lock_guard bassBoostSettingsLock{ m_DecodingMutex };
+
+        m_BassBoostSettings.decibelsBoost = decibelsBoost;
+        m_BassBoostSettings.frequency = frequencyToAdjust;
+        m_BassBoostSettings.bandwidth = bandwidth;
+
+        if(m_Decoder.IsReady())
+        {
+            const bool wasPaused = m_IsPaused;
+
+            if(!wasPaused)
+                Pause(true);
+
+            m_ShouldReturnToCurrentTimestamp = true;
+            m_IsSkippingFrames = true;
+
+            m_Decoder.SetBassBoost(decibelsBoost, frequencyToAdjust, bandwidth);
+
+            if(!wasPaused)
+                Pause(false);
+        }
+    }
+
+    void Player::InsertOrAssignEqualizerFrequency(const float& frequency, const float& decibelsBoost)
+    {
+        std::lock_guard equalizersLock{ m_DecodingMutex };
+
+        m_EqualizerFrequencies.insert_or_assign(frequency, decibelsBoost);
+
+        if(m_Decoder.IsReady())
+        {
+            const bool wasPaused = m_IsPaused;
+
+            if(!wasPaused)
+                Pause(true);
+
+            m_ShouldReturnToCurrentTimestamp = true;
+            m_IsSkippingFrames = true;
+
+            m_Decoder.SetEqualizer(m_EqualizerFrequencies);
+
+            if(!wasPaused)
+                Pause(false);
+        }
+    }
+    void Player::EraseEqualizerFrequency(const float& frequency)
+    {
+        std::lock_guard equalizersLock{ m_DecodingMutex };
+
+        m_EqualizerFrequencies.erase(frequency);
+
+        if(m_Decoder.IsReady())
+        {
+            const bool wasPaused = m_IsPaused;
+
+            if(!wasPaused)
+                Pause(true);
+
+            m_ShouldReturnToCurrentTimestamp = true;
+            m_IsSkippingFrames = true;
+
+            m_Decoder.SetEqualizer(m_EqualizerFrequencies);
+
+            if(!wasPaused)
+                Pause(false);
+        }
+    }
+    void Player::ClearEqualizer()
+    {
+        std::lock_guard equalizersLock{ m_DecodingMutex };
+
+        m_EqualizerFrequencies.clear();
+
+        if(m_Decoder.IsReady())
+        {
+            const bool wasPaused = m_IsPaused;
+
+            if(!wasPaused)
+                Pause(true);
+
+            m_ShouldReturnToCurrentTimestamp = true;
+            m_IsSkippingFrames = true;
+
+            m_Decoder.SetEqualizer(m_EqualizerFrequencies);
+
+            if(!wasPaused)
+                Pause(false);
+        }
+    }
+
+    void Player::SetAudioSampleRate(const uint32_t& sampleRate)
     {
         const bool wasPaused = m_IsPaused;
 
         if(!wasPaused)
             Pause(true);
 
-        m_PreviousSampleRate = m_Decoders[index].GetOutSampleRate();
-        m_Decoders[index].SetOutSampleRate(sampleRate);
+        m_PreviousSampleRate = m_Decoder.GetOutSampleRate();
+        m_Decoder.SetOutSampleRate(sampleRate);
 
-        m_IsChangingSampleRate = true;
+        m_ShouldReturnToCurrentTimestamp = true;
         m_IsSkippingFrames = true;
 
         if(!wasPaused)
@@ -268,30 +357,33 @@ namespace Orchestra
     {
         return m_SentPacketSize;
     }
-    size_t Player::GetDecodersCount() const noexcept
+
+    float Player::GetCurrentTimestamp() const noexcept
     {
-        return m_Decoders.size();
+        return m_CurrentTimestamp;
+    }
+    float Player::GetTotalDuration() const
+    {
+        return m_Decoder.GetTotalDurationSeconds();
     }
 
-    float Player::GetCurrentDecodingDurationSeconds() const noexcept
+    const Player::BassBoostSettings& Player::GetBassBoostSettings() const
     {
-        return m_CurrentDecodingDuration;
-    }
-    float Player::GetTotalDurationSeconds(const size_t& index) const
-    {
-        if(m_Decoders.empty())
-            return 0.f;
-        else
-            return m_Decoders[index].GetTotalDurationSeconds();
+        return m_BassBoostSettings;
     }
 
-    std::string Player::GetTitle(const size_t& index) const
+    const std::map<float, float>& Player::GetEqualizerFrequencies() const
     {
-        return m_Decoders[index].GetTitle();
+        return m_EqualizerFrequencies;
     }
 
-    bool Player::HasDecoderFinished(const size_t& index) const
+    std::string Player::GetTitle() const
     {
-        return !m_Decoders[index].AreThereFramesToProcess();
+        return m_Decoder.GetTitle();
+    }
+
+    bool Player::HasDecoderFinished() const
+    {
+        return !m_Decoder.AreThereFramesToProcess();
     }
 }

@@ -43,7 +43,7 @@ namespace Orchestra
         std::wstring title;
         //seconds
         float duration;
-        size_t playlistIndex;
+        size_t uniqueIndex;
         size_t repeat;
         float speed;
 
@@ -74,6 +74,8 @@ namespace Orchestra
 
         //may call yt-dlp
         TrackInfo GetTrackInfo(const size_t& index = 0, const bool& lookForRawURL = true) const;
+
+        std::wstring GetPlaylistName() const;
         //retrieve basic info for all tracks
 
         void Reset();

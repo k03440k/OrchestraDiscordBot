@@ -3,6 +3,9 @@
 
 #include <string_view>
 #include <GuelderConsoleLog.hpp>
+#include <map>
+
+#include "GuelderResourcesManager.hpp"
 
 extern "C"
 {
@@ -13,6 +16,9 @@ extern "C"
 #include <libavutil/samplefmt.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersrc.h>
+#include <libavfilter/buffersink.h>
 }
 
 #include "../Utils.hpp"
@@ -20,12 +26,24 @@ extern "C"
 //public
 namespace Orchestra
 {
-    Decoder::Decoder(const std::string_view& url, const AVSampleFormat& outSampleFormat, const uint32_t& outSampleRate)
-        : m_FormatContext(nullptr/*avformat_alloc_context()*/, FFmpegUniquePtrManager::FreeFormatContext),
+    Decoder::Decoder()
+        : m_FormatContext(nullptr, FFmpegUniquePtrManager::FreeFormatContext),
         m_CodecContext(nullptr, FFmpegUniquePtrManager::FreeAVCodecContext),
         m_SwrContext(nullptr, FFmpegUniquePtrManager::FreeSwrContext),
         m_Packet(nullptr, FFmpegUniquePtrManager::FreeAVPacket),
         m_Frame(nullptr, FFmpegUniquePtrManager::FreeAVFrame),
+        m_FilterGraph(nullptr, FFmpegUniquePtrManager::FreeAVFilterGraph),
+        m_MaxBufferSize(0),
+        m_AudioStreamIndex(std::numeric_limits<uint32_t>::max()),
+        m_OutSampleFormat(AV_SAMPLE_FMT_NONE),
+        m_OutSampleRate(0) {}
+    Decoder::Decoder(const std::string_view& url, const uint32_t& outSampleRate, const AVSampleFormat& outSampleFormat)
+        : m_FormatContext(nullptr, FFmpegUniquePtrManager::FreeFormatContext),
+        m_CodecContext(nullptr, FFmpegUniquePtrManager::FreeAVCodecContext),
+        m_SwrContext(nullptr, FFmpegUniquePtrManager::FreeSwrContext),
+        m_Packet(nullptr, FFmpegUniquePtrManager::FreeAVPacket),
+        m_Frame(nullptr, FFmpegUniquePtrManager::FreeAVFrame),
+        m_FilterGraph(nullptr, FFmpegUniquePtrManager::FreeAVFilterGraph),
         m_AudioStreamIndex(std::numeric_limits<uint32_t>::max()),
         m_OutSampleFormat(outSampleFormat),
         m_OutSampleRate(outSampleRate)
@@ -84,6 +102,8 @@ namespace Orchestra
         m_MaxBufferSize = av_samples_get_buffer_size(nullptr, m_CodecContext->ch_layout.nb_channels, m_CodecContext->frame_size, m_CodecContext->sample_fmt, 0);
         if(m_MaxBufferSize < 0)
             m_MaxBufferSize = 1024;
+
+        ResetGraph();
     }
     Decoder::Decoder(const Decoder& other)
         : m_FormatContext(CloneUniquePtr(other.m_FormatContext)),
@@ -91,6 +111,8 @@ namespace Orchestra
         m_SwrContext(DuplicateSwrContext(other.m_SwrContext.get()), FFmpegUniquePtrManager::FreeSwrContext),
         m_Packet(CloneUniquePtr(other.m_Packet)),
         m_Frame(CloneUniquePtr(other.m_Frame)),
+        m_FilterGraph(CloneUniquePtr(other.m_FilterGraph)),
+        m_Filters(other.m_Filters),
         m_MaxBufferSize(other.m_MaxBufferSize),
         m_AudioStreamIndex(other.m_AudioStreamIndex),
         m_OutSampleFormat(other.m_OutSampleFormat),
@@ -102,6 +124,8 @@ namespace Orchestra
         *m_CodecContext = *other.m_CodecContext;
         *m_Packet = *other.m_Packet;
         *m_Frame = *other.m_Frame;
+        *m_FilterGraph = *other.m_FilterGraph;
+        m_Filters = other.m_Filters;
 
         CopySwrParams(other.m_SwrContext.get(), m_SwrContext.get());
 
@@ -122,13 +146,32 @@ namespace Orchestra
 
         if(avcodec_receive_frame(m_CodecContext.get(), m_Frame.get()) == 0)
         {
-            const int64_t outNumberOfSamples = av_rescale_rnd(swr_get_delay(m_SwrContext.get(), m_CodecContext->sample_rate) + m_Frame->nb_samples, m_OutSampleRate, m_CodecContext->sample_rate, AV_ROUND_UP);
+            FFmpegUniquePtrManager::UniquePtrAVFrame allocatedFrame = FFmpegUniquePtrManager::UniquePtrAVFrame(nullptr, FFmpegUniquePtrManager::FreeAVFrame);
+
+            AVFrame* frame = nullptr;
+
+            //if(m_FilterGraph)
+            {
+                O_ASSERT(av_buffersrc_add_frame(m_Filters.bufferSource, m_Frame.get()) >= 0, "Failed to apply filter to the frame.");
+
+                allocatedFrame.reset(av_frame_alloc());
+
+                frame = allocatedFrame.get();
+
+                O_ASSERT(frame != nullptr, "Failed to initialize a frame, during filter process.");
+
+                O_ASSERT(av_buffersink_get_frame(m_Filters.bufferSink, frame) >= 0, "Failed to receive a frame from filter sink.");
+            }
+            //else
+                //frame = m_Frame.get();
+
+            const int64_t outNumberOfSamples = av_rescale_rnd(swr_get_delay(m_SwrContext.get(), m_CodecContext->sample_rate) + frame->nb_samples, m_OutSampleRate, m_CodecContext->sample_rate, AV_ROUND_UP);
 
             uint8_t* outputBuffer;
             /*int bufferSize = */av_samples_alloc(&outputBuffer, nullptr, m_CodecContext->ch_layout.nb_channels, outNumberOfSamples, m_OutSampleFormat, 1);
 
             int convertedSamples = 0;
-            O_ASSERT((convertedSamples = swr_convert(m_SwrContext.get(), &outputBuffer, outNumberOfSamples, const_cast<const uint8_t**>(m_Frame->data), m_Frame->nb_samples)) > 0, "Failed to convert samples.");
+            O_ASSERT((convertedSamples = swr_convert(m_SwrContext.get(), &outputBuffer, outNumberOfSamples, const_cast<const uint8_t**>(frame->data), frame->nb_samples)) > 0, "Failed to convert samples.");
 
             const size_t convertedSize = static_cast<size_t>(convertedSamples) * m_CodecContext->ch_layout.nb_channels * av_get_bytes_per_sample(m_OutSampleFormat);
 
@@ -163,6 +206,23 @@ namespace Orchestra
         SkipTimestamp(seconds / GetTimestampToSecondsRatio());
     }
 
+    void Decoder::ResetGraph()
+    {
+        m_FilterGraph.reset(avfilter_graph_alloc());
+
+        //sourceBuffer
+        std::string args;
+        args = GuelderConsoleLog::Logger::Format("time_base=", m_FormatContext->streams[m_AudioStreamIndex]->time_base.num, '/', m_FormatContext->streams[m_AudioStreamIndex]->time_base.den, ":sample_rate=", m_CodecContext->sample_rate, ":sample_fmt=", av_get_sample_fmt_name(m_CodecContext->sample_fmt), ":channel_layout=", m_CodecContext->ch_layout.u.mask);
+
+        m_Filters.bufferSource = CreateFilterContext("abuffer", nullptr, "in", args);
+        m_Filters.bass = CreateFilterContext("bass", m_Filters.bufferSource);
+        m_Filters.equalizer = CreateFilterContext("firequalizer", m_Filters.bass);
+        //m_Filters.limiter = CreateFilterContext("alimiter", m_Filters.equalizer, "alimiter", "0.9");
+        m_Filters.bufferSink = CreateFilterContext("abuffersink", m_Filters.equalizer, "out");
+
+        O_ASSERT(avfilter_graph_config(m_FilterGraph.get(), nullptr) >= 0, "Failed to configure filter graph.");
+    }
+
     uint32_t Decoder::FindStreamIndex(const AVMediaType& mediaType) const
     {
         if(m_AudioStreamIndex == std::numeric_limits<uint32_t>::max())
@@ -179,10 +239,67 @@ namespace Orchestra
     {
         return (av_read_frame(m_FormatContext.get(), m_Packet.get()) == 0);
     }
+    void Decoder::Reset()
+    {
+        m_FormatContext.reset();
+        m_CodecContext.reset();
+        m_SwrContext.reset();
+        m_Packet.reset();
+        m_Frame.reset();
+        m_FilterGraph.reset();
+        m_Filters.bufferSource = nullptr;
+        m_Filters.bass = nullptr;
+        m_Filters.bufferSink = nullptr;
+
+        m_MaxBufferSize = 0;
+        m_AudioStreamIndex = std::numeric_limits<uint32_t>::max();
+        m_OutSampleFormat = AV_SAMPLE_FMT_NONE;
+        m_OutSampleRate = 0;
+    }
+    bool Decoder::IsReady() const
+    {
+        return m_FormatContext && m_CodecContext && m_SwrContext && m_MaxBufferSize > 0 && m_AudioStreamIndex != std::numeric_limits<uint32_t>::max() && m_OutSampleFormat != AV_SAMPLE_FMT_NONE;
+    }
 }
 //getters, setters
 namespace Orchestra
 {
+    void Decoder::SetBassBoost(const float& decibelsBoost, const float& frequencyToAdjust, const float& bandwidth) const
+    {
+        using namespace GuelderConsoleLog;
+
+        O_ASSERT(avfilter_graph_send_command(m_FilterGraph.get(), "bass", "g", Logger::Format(decibelsBoost).c_str(), nullptr, 0, 0) >= 0, "Failed to set \"g\" parameter to \"bass\" filter");
+        O_ASSERT(avfilter_graph_send_command(m_FilterGraph.get(), "bass", "f", Logger::Format(frequencyToAdjust).c_str(), nullptr, 0, 0) >= 0, "Failed to set \"f\" parameter to \"bass\" filter");
+        O_ASSERT(avfilter_graph_send_command(m_FilterGraph.get(), "bass", "w", Logger::Format(bandwidth).c_str(), nullptr, 0, 0) >= 0, "Failed to set \"w\" parameter to \"bass\" filter");
+    }
+
+    void Decoder::SetEqualizer(const std::string_view& args) const
+    {
+        O_ASSERT(avfilter_graph_send_command(m_FilterGraph.get(), "firequalizer", "gain_entry", args.data(), nullptr, 0, 0) >= 0, "Failed to set \"gain\" parameter to \"equalizer\" filter");
+    }
+    void Decoder::SetEqualizer(const std::map<float, float>& frequencies) const
+    {
+        using namespace GuelderConsoleLog;
+
+        std::string args;
+
+        if(frequencies.empty())
+            args = '0';
+        else
+        {
+            auto it = frequencies.begin();
+
+            args += Logger::Format("entry(", it->first, ", ", it->second, ")");
+
+            ++it;
+
+            for(; it != frequencies.end(); ++it)
+                args += Logger::Format(";entry(", it->first, ", ", it->second, ')');
+        }
+
+        SetEqualizer(args);
+    }
+
     int Decoder::GetInitialSampleRate() const
     {
         return m_CodecContext->sample_rate;
@@ -314,5 +431,19 @@ namespace Orchestra
     AVStream* Decoder::GetStream() const
     {
         return m_FormatContext->streams[FindStreamIndex(AVMEDIA_TYPE_AUDIO)];
+    }
+
+    AVFilterContext* Decoder::CreateFilterContext(const std::string_view& filterNameToFind, AVFilterContext* link, const std::string_view& customName, const std::string_view& args) const
+    {
+        const AVFilter* filter = avfilter_get_by_name(filterNameToFind.data());
+        O_ASSERT(filter, "Failed to find filter with filterNameToFind ", filterNameToFind);
+        AVFilterContext* filterContext = nullptr;
+
+        O_ASSERT(avfilter_graph_create_filter(&filterContext, filter, customName.empty() ? filterNameToFind.data() : customName.data(), args.data(), nullptr, m_FilterGraph.get()) >= 0, "Failed to create filter with filterNameToFind", filterNameToFind);
+
+        if(link)
+            O_ASSERT(!avfilter_link(link, 0, filterContext, 0), "Failed to link filter with filterNameToFind ", filterNameToFind);
+
+        return filterContext;
     }
 }

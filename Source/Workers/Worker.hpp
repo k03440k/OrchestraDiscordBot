@@ -23,10 +23,16 @@ namespace Orchestra
                     _exceptionDeleter(e);
                     throw e;
                 }
+                catch (const std::exception& e)
+                {
+                    GE_LOG(Orchestra, Warning, "Caught exception: ", e.what());
+                    throw e;
+                }
                 catch(...)
                 {
                     const auto e = std::exception{"Unknown exception"};
                     //_exceptionDeleter(e);
+                    GE_LOG(Orchestra, Warning, "Caught unknown exception.");
                     throw e;
                 }
             }) {}

@@ -23,4 +23,8 @@ namespace Orchestra
     {
         av_frame_free(&frame);
     }
+    void FFmpegUniquePtrManager::FreeAVFilterGraph(AVFilterGraph* filterGraph)
+    {
+        avfilter_graph_free(&filterGraph);
+    }
 }
