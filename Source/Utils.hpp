@@ -28,7 +28,8 @@ namespace Orchestra
     {
     public:
         OrchestraException(const std::string_view& userMessage, const std::string_view& fullMessage = "")
-            : m_UserMessage(userMessage), m_FullMessage((fullMessage.empty() ? userMessage : fullMessage)) {}
+            : m_UserMessage(userMessage), m_FullMessage((fullMessage.empty() ? userMessage : fullMessage)) {
+        }
 
         const std::string& GetUserMessage() const noexcept { return m_UserMessage; }
         const std::string& GetFullMessage() const noexcept { return m_FullMessage; }
@@ -77,5 +78,14 @@ namespace Orchestra
             std::rotate(container.begin() + from, container.begin() + from + 1, container.begin() + to + 1);
         else
             std::rotate(container.begin() + to, container.begin() + from, container.begin() + from + 1);
+    }
+    inline bool IsSpecialChar(char ch)
+    {
+        return !(
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9') ||
+            ch == '_' || ch < 0
+            );
     }
 }

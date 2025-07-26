@@ -1,9 +1,15 @@
-#include <dpp/dpp.h>
+﻿#include <dpp/dpp.h>
 #include <GuelderConsoleLog.hpp>
 #include <GuelderResourcesManager.hpp>
 
 //#include "Utils.hpp"
 #include "DiscordBot/OrchestraDiscordBot.hpp"
+
+#define NOMINMAX
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 using namespace GuelderConsoleLog;
 using namespace Orchestra;
@@ -31,11 +37,11 @@ void BotLogger(const dpp::log_t& log)
 int main(int argc, char** argv)
 {
     try
-    {
-        std::filesystem::path path{argv[0]};
+    {//issues with wchar_t's, admin ID
+        std::filesystem::path path{ argv[0] };
         path.remove_filename();
         const GuelderResourcesManager::ResourcesManager resourcesManager{ path };
-        const GuelderResourcesManager::ConfigFile cfg{resourcesManager.GetFullPathToRelativeFile("Resources/main.cfg")};
+        const GuelderResourcesManager::ConfigFile cfg{ resourcesManager.GetFullPathToRelativeFile("Resources/main.cfg") };
 
         //TODO: it is better to make GetValue<std::string> and GetValue<const std::string&> in ResourcesManager
         auto botToken = cfg.GetVariable("botToken").GetValue<std::string>();

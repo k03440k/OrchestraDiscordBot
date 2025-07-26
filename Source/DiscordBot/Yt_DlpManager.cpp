@@ -181,7 +181,7 @@ namespace Orchestra
     {
         const std::string pipeCommand = GuelderConsoleLog::Logger::Format(m_Yt_dlpPath, " -f bestaudio --get-url \"", SearchEngineToString(searchEngine), "search:", input, "\"");
 
-        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand(pipeCommand, 1);
+        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
 
         O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp.");
 
@@ -247,7 +247,7 @@ namespace Orchestra
         else
             pipeCommand = Logger::Format(yt_dlpPath, ' ', s_Yt_dlpParameters, " \"", input, '\"');
 
-        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<char>(pipeCommand, 1);
+        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
 
         O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp.");
 

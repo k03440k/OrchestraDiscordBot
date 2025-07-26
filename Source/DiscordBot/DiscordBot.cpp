@@ -43,9 +43,9 @@ namespace Orchestra
                         GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
 
                         const size_t id = m_WorkersManger.AddWorker(
-                            [message, command, parsedCommand, this]
+                            [message, command, _parsedCommand = std::move(parsedCommand), this]
                             {
-                                (*command)(message, parsedCommand.params, parsedCommand.value);
+                                (*command)(message, _parsedCommand.params, _parsedCommand.value);
                             },
                             [message](const OrchestraException& oe) { message.reply(GuelderConsoleLog::Logger::Format("**Exception:** ", oe.GetUserMessage())); },
                             true);
@@ -217,6 +217,7 @@ namespace Orchestra
     }
     bool DiscordBot::IsValidParamValueChar(char ch)
     {
-        return std::isalnum(ch) || ch == '.' || ch == ',' || ch == '-';
+        //return std::isalnum(ch) || ch == '.' || ch == ',' || ch == '-';
+        return !IsSpecialChar(ch);
     }
 }

@@ -64,8 +64,8 @@ namespace Orchestra
             }
         );
 
-        //TODO: is this necessary?
-        /*on_ready(
+        //TODO: is this necessary? - yes it is
+        on_ready(
             [this, _yt_dlpPath = std::move(yt_dlpPath), commandPrefix, paramPrefix](const dpp::ready_t& readyEvent)
             {
                 for(auto&& guildID : readyEvent.guilds)
@@ -78,7 +78,7 @@ namespace Orchestra
                 m_OnReadyCallbacks.clear();
                 m_IsReady = true;
             }
-        );*/
+        );
 
         //TODO:
         //make and update documentation and changelog
@@ -1620,7 +1620,7 @@ namespace Orchestra
         }
         else
         {
-            O_ASSERT(/*IsValidURL(value.data()) && */message.msg.author.id == botPlayer.adminSnowflake, "The user tried to access admin's file, while not being the admin.");
+            O_ASSERT(message.msg.author.id == botPlayer.adminSnowflake, "The user tried to access admin's file, while not being the admin.");
 
             botPlayer.tracksQueue.FetchRaw(std::move(value), playParams.speed, playParams.repeat, insertIndex);
         }
@@ -1679,32 +1679,6 @@ namespace Orchestra
     {
         BotPlayer& botPlayer = GetBotPlayer(guildID);
 
-        //std::string description = Logger::Format(L"**[", botPlayer.m_CurrentTrackIndex, "]** ");
-
-        //if(trackInfo.title.empty())
-        //    description += Logger::Format(L"The name of the track is unknown.\n");
-        //else
-        //    description += Logger::Format(L"**", trackInfo.title, L"** is going to be played.\n");
-
-        //if(trackInfo.duration > 0.f)
-        //    description += Logger::Format(L"The track's duration: **", trackInfo.duration, L"** seconds.\n");
-        //if(printCurrentTimestamp)
-        //{
-        //    const dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
-        //    description += Logger::Format(L"Current timestamp: ", botPlayer.m_Player.GetCurrentTimestamp() - voice->voiceclient->get_secs_remaining(), " seconds.\n");
-        //}
-        ///*if(m_Player.GetBassBoostSettings().decibelsBoost)
-        //{
-        //    auto [boost, freq, band] = m_Player.GetBassBoostSettings();
-        //    description += Logger::Format(L"Bass-boost decibels: ", boost, L".\nBass-boost frequency: ", freq, L"\nBass-boost bandwidth: ", band, "\n");
-        //}*/
-        //if(trackInfo.speed != 1.f)
-        //    description += Logger::Format(L"The speed: ", trackInfo.speed, ".\nThe duration with speed applied: ", trackInfo.duration * trackInfo.speed, L" seconds.\n");
-        //if(trackInfo.repeat > 1)
-        //    description += Logger::Format(L"Repeat count: ", trackInfo.repeat, L".\n");
-
-        //if(outputURL)
-        //    description += Logger::Format(L"URL: ", (trackInfo.URL.empty() ? StringToWString(trackInfo.rawURL) : trackInfo.URL));
         std::string description = Logger::Format("**[", botPlayer.currentTrackIndex, "]** ");
 
         if(trackInfo.title.empty())
@@ -1723,15 +1697,6 @@ namespace Orchestra
                 " seconds.\n");
         }
 
-        /*
-        if (m_Player.GetBassBoostSettings().decibelsBoost)
-        {
-            auto [boost, freq, band] = m_Player.GetBassBoostSettings();
-            description += Logger::Format("Bass-boost decibels: ", boost, ".\nBass-boost frequency: ",
-                                          freq, "\nBass-boost bandwidth: ", band, "\n");
-        }
-        */
-
         if(trackInfo.speed != 1.f)
             description += Logger::Format("The speed: ", trackInfo.speed,
                 ".\nThe duration with speed applied: ", trackInfo.duration * trackInfo.speed, " seconds.\n");
@@ -1745,7 +1710,6 @@ namespace Orchestra
             description += Logger::Format("URL: ", url);
         }
 
-        //Reply(message, WStringToString(description));
         Reply(message, description);
     }
 
@@ -1780,7 +1744,7 @@ namespace Orchestra
 {
     void OrchestraDiscordBot::SetEnableLogSentPackets(bool enable)
     {
-        /*if(!m_IsReady)
+        if(!m_IsReady)
             m_OnReadyCallbacks.emplace_back(
                 [this, enable]
                 {
@@ -1788,13 +1752,13 @@ namespace Orchestra
                         botPlayer.player.SetEnableLogSentPackets(enable);
                 }
             );
-        else*/
+        else
             for(auto& botPlayer : m_GuildsBotPlayers | std::views::values)
                 botPlayer.player.SetEnableLogSentPackets(enable);
     }
     void OrchestraDiscordBot::SetSentPacketSize(uint32_t size)
     {
-        /*if(!m_IsReady)
+        if(!m_IsReady)
             m_OnReadyCallbacks.emplace_back(
                 [this, size]
                 {
@@ -1802,13 +1766,13 @@ namespace Orchestra
                         botPlayer.player.SetSentPacketSize(size);
                 }
             );
-        else*/
+        else
             for(auto& botPlayer : m_GuildsBotPlayers | std::views::values)
                 botPlayer.player.SetSentPacketSize(size);
     }
     void OrchestraDiscordBot::SetAdminSnowflake(dpp::snowflake id)
     {
-        /*if(!m_IsReady)
+        if(!m_IsReady)
             m_OnReadyCallbacks.emplace_back(
                 [this, id]
                 {
@@ -1816,21 +1780,8 @@ namespace Orchestra
                         botPlayer.adminSnowflake = std::move(id);
                 }
             );
-        else*/
+        else
             for(auto& botPlayer : m_GuildsBotPlayers | std::views::values)
                 botPlayer.adminSnowflake = std::move(id);
     }
-
-    /*bool OrchestraDiscordBot::GetEnableLogSentPackets() const noexcept
-    {
-        return m_Player.GetEnableLogSentPackets();
-    }
-    uint32_t OrchestraDiscordBot::GetSentPacketSize() const noexcept
-    {
-        return m_Player.GetSentPacketSize();
-    }
-    dpp::snowflake OrchestraDiscordBot::GetAdminSnowflake() const noexcept
-    {
-        return m_AdminSnowflake;
-    }*/
 }

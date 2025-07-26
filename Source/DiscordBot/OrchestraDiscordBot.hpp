@@ -115,7 +115,7 @@ namespace Orchestra
         std::unordered_map<dpp::snowflake, BotPlayer> m_GuildsBotPlayers;
         std::mutex m_GuildCreateMutex;
 
-        //std::vector<std::function<void()>> m_OnReadyCallbacks;
+        std::vector<std::function<void()>> m_OnReadyCallbacks;
         bool m_IsReady;
     };
 }
