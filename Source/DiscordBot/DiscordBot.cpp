@@ -1,6 +1,7 @@
 #include "DiscordBot.hpp"
 
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <functional>
 #include <cwctype>
@@ -13,14 +14,10 @@
 
 namespace Orchestra
 {
-    DiscordBot::DiscordBot(const std::string_view& token, const std::string_view& prefix, const char& paramNamePrefix, uint32_t intents)
-        : dpp::cluster(token.data(), intents), m_Prefix(prefix), m_ParamNamePrefix(paramNamePrefix) {}
+    DiscordBot::DiscordBot(const std::string& token, std::string commandPrefix, char paramNamePrefix, uint32_t intents)
+        : dpp::cluster(token.data(), intents), m_Prefix(std::move(commandPrefix)), m_ParamNamePrefix(paramNamePrefix) {}
 
-    void DiscordBot::AddCommand(const Command& command)
-    {
-        m_Commands.push_back(command);
-    }
-    void DiscordBot::AddCommand(Command&& command)
+    void DiscordBot::AddCommand(Command command)
     {
         m_Commands.push_back(std::move(command));
     }
@@ -29,7 +26,7 @@ namespace Orchestra
         m_WorkersManger.Reserve(m_Commands.size());
 
         on_message_create(
-            [&](const dpp::message_create_t& message)
+            [this](const dpp::message_create_t& message)
             {
                 if(message.msg.attachments.empty() && message.msg.author.id != me.id)
                 {
@@ -52,6 +49,7 @@ namespace Orchestra
                             },
                             [message](const OrchestraException& oe) { message.reply(GuelderConsoleLog::Logger::Format("**Exception:** ", oe.GetUserMessage())); },
                             true);
+
                         m_WorkersManger.Work(id);
                     }
                 }
@@ -64,11 +62,11 @@ namespace Orchestra
 
         start(dpp::st_wait);
     }
-    void DiscordBot::SetLogger(const std::function<void(const dpp::log_t& log)>& logger)
+    void DiscordBot::SetLogger(std::function<void(const dpp::log_t& log)> logger)
     {
-        this->on_log(logger);
+        on_log(std::move(logger));
     }
-    DiscordBot::ParsedCommandWithIndex DiscordBot::ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset, const char& paramNamePrefix)
+    DiscordBot::ParsedCommandWithIndex DiscordBot::ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, size_t commandOffset, char paramNamePrefix)
     {
         using CommandsIterator = decltype(supportedCommands.begin());
         using MessageIterator = decltype(message.begin());
@@ -105,7 +103,7 @@ namespace Orchestra
             for(size_t i = commandEndOffset; i < message.size(); i++)
             {
                 //setting its name
-                if(message[i - 1] == ' ' && message[i] == paramNamePrefix && i + 1 < message.size() && IsParamNameChar(message[i + 1]))
+                if(message[i - 1] == ' ' && message[i] == paramNamePrefix && i + 1 < message.size() && IsValidParamNameChar(message[i + 1]))
                 {
                     paramsValuesCount = 0;
                     paramsCount++;
@@ -113,7 +111,7 @@ namespace Orchestra
                     paramsOffsets.emplace_back(i + 1, std::string::npos);
                 }
                 //setting its value
-                else if(message[i - 1] == ' ' && IsParamValueChar(message[i]))
+                else if(message[i - 1] == ' ' && IsValidParamValueChar(message[i]))
                 {
                     if(!paramsCount)
                     {
@@ -157,7 +155,7 @@ namespace Orchestra
                     else
                         paramValue = (!paramValueLength ? "" : message.substr(paramsOffsets[i].second, paramValueLength));
 
-                    Param param{ ParamProperties{std::move(paramName), foundParamProperty->type}, std::move(paramValue) };
+                    Param param{ ParamProperties{foundParamProperty->type, std::move(paramName)}, std::move(paramValue) };
 
                     try
                     {
@@ -213,12 +211,12 @@ namespace Orchestra
 
         return { {std::move(commandName), std::move(params), std::move(commandValue)}, supportedCommandIndex };
     }
-    bool DiscordBot::IsParamNameChar(const char& ch)
+    bool DiscordBot::IsValidParamNameChar(char ch)
     {
-        return std::iswalpha(CharToWChar(ch)) || ch == '_';
+        return std::isalpha(ch) || ch == '_';
     }
-    bool DiscordBot::IsParamValueChar(const char& ch)
+    bool DiscordBot::IsValidParamValueChar(char ch)
     {
-        return std::iswalnum(CharToWChar(ch)) || ch == '.' || ch == ',' || ch == '-';
+        return std::isalnum(ch) || ch == '.' || ch == ',' || ch == '-';
     }
 }

@@ -9,8 +9,8 @@ namespace Orchestra
     struct Worker
     {
     public:
-        Worker(const size_t& index, std::function<T()>&& work, std::function<void(const _Exception&)>&& exceptionDeleter = []{})
-            :m_Index(index), m_HasWorkBeenStarted(false),
+        Worker(size_t index, std::function<T()> work, std::function<void(const _Exception&)> exceptionDeleter = []{})
+            : m_Index(index), m_HasWorkBeenStarted(false),
         m_Work(
             [_work = std::move(work), _exceptionDeleter = std::move(exceptionDeleter)]
             {

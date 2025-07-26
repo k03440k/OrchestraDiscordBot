@@ -25,34 +25,39 @@ namespace Orchestra
             bool IsEmpty() const { return !decibelsBoost && !frequency && !bandwidth; }
         };
     public:
-        Player(const uint32_t& sentPacketsSize, const bool& enableLogSentPackets = false);
+        Player(uint32_t sentPacketsSize = 0, bool enableLogSentPackets = false);
+
+        Player(const Player& other);
+        Player& operator=(const Player& other);
+        Player(Player&& other) noexcept;
+        Player& operator=(Player&& other) noexcept;
 
         //blocks current thread
         void DecodeAndSendAudio(const dpp::voiceconn* voice);
 
         void Stop();
-        void Pause(const bool& pause);
+        void Pause(bool pause);
         void Skip();
         
-        void SkipToSeconds(const float& seconds);
-        void SkipSeconds(const float& seconds);
+        void SkipToSeconds(float seconds);
+        void SkipSeconds(float seconds);
 
-        void SetDecoder(const std::string_view& url, const uint32_t& sampleRate = Decoder::DEFAULT_SAMPLE_RATE);
+        void SetDecoder(const std::string_view& url, int sampleRate = Decoder::DEFAULT_SAMPLE_RATE);
 
         void ResetDecoder();
         bool IsDecoderReady() const;
 
-        void SetBassBoost(const float& decibelsBoost = 0.f, const float& frequencyToAdjust = 0.f, const float& bandwidth = 0.f);
+        void SetBassBoost(float decibelsBoost = 0.f, float frequencyToAdjust = 0.f, float bandwidth = 0.f);
 
-        void InsertOrAssignEqualizerFrequency(const float& frequency, const float& decibelsBoost);
-        void EraseEqualizerFrequency(const float& frequency);
+        void InsertOrAssignEqualizerFrequency(float frequency, float decibelsBoost);
+        void EraseEqualizerFrequency(float frequency);
         void ClearEqualizer();
 
     public:
-        void SetAudioSampleRate(const uint32_t& sampleRate);
+        void SetAudioSampleRate(uint32_t sampleRate);
 
-        void SetEnableLogSentPackets(const bool& enable);
-        void SetSentPacketSize(const uint32_t& size);
+        void SetEnableLogSentPackets(bool enable);
+        void SetSentPacketSize(uint32_t size);
 
         bool GetIsPaused() const noexcept;
         bool GetIsDecoding() const noexcept;
@@ -75,6 +80,9 @@ namespace Orchestra
     private:
         void LazyDecodingCheck(const std::chrono::milliseconds& toWait, std::unique_lock<std::mutex>& pauseLock, const std::chrono::milliseconds& sleepFor = std::chrono::milliseconds(10));
 
+    private:
+        void CopyFrom(const Player& other);
+        void MoveFrom(Player&& other) noexcept;
     private:
         Decoder m_Decoder;
 

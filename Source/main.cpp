@@ -32,17 +32,29 @@ int main(int argc, char** argv)
 {
     try
     {
-        const GuelderResourcesManager::ResourcesManager resourcesManager{ argv[0], "Resources", "config.txt" };
+        std::filesystem::path path{argv[0]};
+        path.remove_filename();
+        const GuelderResourcesManager::ResourcesManager resourcesManager{ path };
+        const GuelderResourcesManager::ConfigFile cfg{resourcesManager.GetFullPathToRelativeFile("Resources/main.cfg")};
 
-        const auto& botToken = resourcesManager.GetVariable("botToken").GetValue<std::string_view>();
-        const auto& prefix = resourcesManager.GetVariable("commandPrefix").GetValue<std::string_view>();
-        const auto& yt_dlpPath = resourcesManager.GetVariable("yt_dlp").GetValue<std::string_view>();
-        const auto sentPacketsSize = resourcesManager.GetVariable("sentPacketsSize").GetValue<unsigned int>();
-        const auto logSentPackets = resourcesManager.GetVariable("enableLoggingSentPackets").GetValue<bool>();
-        const auto adminSnowflake = resourcesManager.GetVariable("adminSnowflake").GetValue<unsigned long long>();
-        const char paramPrefix = resourcesManager.GetVariable("paramPrefix").GetValue<std::string_view>()[0];
+        //TODO: it is better to make GetValue<std::string> and GetValue<const std::string&> in ResourcesManager
+        auto botToken = cfg.GetVariable("botToken").GetValue<std::string>();
+        auto commandPrefix = cfg.GetVariable("commandPrefix").GetValue<std::string>();
+        auto yt_dlpPath = cfg.GetVariable("yt_dlp").GetValue<std::string>();
+        const auto sentPacketsSize = cfg.GetVariable("sentPacketsSize").GetValue<unsigned int>();
+        const auto logSentPackets = cfg.GetVariable("enableLoggingSentPackets").GetValue<bool>();
+        const char paramPrefix = cfg.GetVariable("paramPrefix").GetRawValue()[0];
+        unsigned long long adminSnowflake = 0;
+        try
+        {
+            adminSnowflake = cfg.GetVariable("adminSnowflake").GetValue<unsigned long long>();
+        }
+        catch(...)
+        {
+            LogWarning("The variable \"adminSnowflake\" is empty, setting adminSnowflake to 0.");
+        }
 
-        OrchestraDiscordBot bot{ botToken, StringToWString(yt_dlpPath.data()), prefix, paramPrefix };
+        OrchestraDiscordBot bot{ botToken, yt_dlpPath, commandPrefix, paramPrefix };
 
         bot.SetEnableLogSentPackets(logSentPackets);
         bot.SetSentPacketSize(sentPacketsSize);

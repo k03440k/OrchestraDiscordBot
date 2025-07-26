@@ -1,7 +1,0 @@
-String botToken = "";
-String commandPrefix = "!";
-Char paramPrefix = "-";
-String yt_dlp = "";//path to yt-dlp .exe. DO NOT PUT ANY WHITESPACES and use only English letters.
-UInt sentPacketsSize = "1500000";//note: sent packet may be bigger than this value(bytes)
-Bool enableLoggingSentPackets = "true";//print message like: Sending 3001632 bytes of data; totalNumberOfReadings: 781.?
-ULongLong adminSnowflake = "0";

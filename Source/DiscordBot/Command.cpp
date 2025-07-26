@@ -8,11 +8,8 @@
 
 namespace Orchestra
 {
-    Command::Command(const std::string_view& name, const CommandCallback& func, const std::vector<ParamProperties>& paramsProperties, const std::string_view& description)
-        : func(func), name(name), description(description), paramsProperties(paramsProperties) {}
-
-    Command::Command(std::string&& name, CommandCallback&& func, std::vector<ParamProperties>&& paramsProperties, std::string&& description)
-        : func(std::move(func)), name(std::move(name)), description(std::move(description)), paramsProperties(std::move(paramsProperties)) {}
+    Command::Command(std::string name, CommandCallback func, std::vector<ParamProperties> paramsProperties, std::string description)
+        : name(std::move(name)), func(std::move(func)), paramsProperties(std::move(paramsProperties)), description(std::move(description)) {}
 
     void Command::operator()(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const
     {

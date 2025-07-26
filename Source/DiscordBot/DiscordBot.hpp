@@ -20,19 +20,18 @@ namespace Orchestra
     class DiscordBot : protected dpp::cluster
     {
     public:
-        DiscordBot(const std::string_view& token, const std::string_view& prefix, const char& paramNamePrefix = '-', uint32_t intents = dpp::i_all_intents);
+        DiscordBot(const std::string& token, std::string commandPrefix, char paramNamePrefix = '-', uint32_t intents = dpp::i_all_intents);
         ~DiscordBot() override = default;
 
-        void AddCommand(const Command& command);
-        void AddCommand(Command&& command);
+        void AddCommand(Command command);
         void RegisterCommands();
 
         void Run();
 
-        void SetLogger(const std::function<void(const dpp::log_t& log)>& logger);
+        void SetLogger(std::function<void(const dpp::log_t& log)> logger);
 
     protected:
-        const std::string m_Prefix;
+        std::string m_Prefix;
         const char m_ParamNamePrefix;
         std::vector<Command> m_Commands;
 
@@ -46,8 +45,8 @@ namespace Orchestra
         };
 
     private:
-        static ParsedCommandWithIndex ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, const size_t& commandOffset = 0, const char& paramNamePrefix = '-');
-        static bool IsParamNameChar(const char& ch);
-        static bool IsParamValueChar(const char& ch);
+        static ParsedCommandWithIndex ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, size_t commandOffset = 0, char paramNamePrefix = '-');
+        static bool IsValidParamNameChar(char ch);
+        static bool IsValidParamValueChar(char ch);
     };
 }

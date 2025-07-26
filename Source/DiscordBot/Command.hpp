@@ -22,23 +22,22 @@ namespace Orchestra
 
     struct ParamProperties
     {
-    public:
         friend bool operator==(const ParamProperties& left, const ParamProperties& right)
         {
-            return left.name == right.name && left.type == right.type;
+            return left.type == right.type && left.name == right.name;
         }
         friend bool operator<(const ParamProperties& left, const ParamProperties& right)
         {
             return left.name < right.name;
         }
-
-        std::string name;
+        
         Type type;
+        std::string name;
+        //TODO: something must be done with description field
         std::string description;
     };
     struct Param
     {
-    public:
         friend bool operator==(const Param& left, const Param& right)
         {
             return left.properties == right.properties && left.value == right.value;
@@ -56,9 +55,7 @@ namespace Orchestra
         template<GuelderResourcesManager::IsNumber Numeral>
         Numeral GetValue() const
         {
-            if(!IsNumeral())
-                throw std::invalid_argument(GuelderConsoleLog::Logger::Format("The param's type is not ", typeid(Numeral).name()));
-
+            O_ASSERT(IsNumeral(), "The param's type ", typeid(Numeral).name(), " is not numeral");
             return GuelderResourcesManager::StringToNumber<Numeral>(value);
         }
         template<>
@@ -70,11 +67,7 @@ namespace Orchestra
         template<>
         std::string GetValue() const
         {
-            return value;
-        }
-        template<>
-        std::string_view GetValue() const
-        {
+            O_ASSERT(properties.type == Type::String, "The param's type is not ", typeid(std::string).name());
             return value;
         }
 
@@ -95,7 +88,6 @@ namespace Orchestra
     };
     struct ParsedCommand
     {
-    public:
         std::string name;
         std::vector<Param> params;
         std::string value;
@@ -104,21 +96,22 @@ namespace Orchestra
     struct Command
     {
     public:
-        using CommandCallback = std::function<void(const dpp::message_create_t& message, const std::vector<Param>&, const std::string_view&)>;
+        using CommandCallback = std::function<void(const dpp::message_create_t& message, const std::vector<Param>& paramsProperties, const std::string_view& description)>;
     public:
-        Command(const std::string_view& name, const CommandCallback& func, const std::vector<ParamProperties>& paramsProperties = {}, const std::string_view& description = "");
-        Command(std::string&& name, CommandCallback&& func, std::vector<ParamProperties>&& paramsProperties = {}, std::string&& description = "");
+        Command(std::string name, CommandCallback func, std::vector<ParamProperties> paramsProperties = {}, std::string description = "");
         ~Command() = default;
 
         Command(const Command& other) = default;
+        Command& operator=(const Command& other) = default;
         Command(Command&& other) noexcept = default;
+        Command& operator=(Command&& other) = default;
 
         void operator()(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value) const;
-
-        CommandCallback func;
+        
         std::string name;
-        std::string description;
+        CommandCallback func;
         std::vector<ParamProperties> paramsProperties;
+        std::string description;
     };
 
     inline auto GetParam(const std::vector<Param>& params, const std::string_view& name)
@@ -151,7 +144,7 @@ namespace Orchestra
     template<typename T>
     void GetParamValue(const std::vector<Param>& params, const std::string_view& name, T& value)
     {
-        auto found = GetParam(params, name);
+        const auto found = GetParam(params, name);
 
         if(found != params.end())
             value = found->GetValue<T>();

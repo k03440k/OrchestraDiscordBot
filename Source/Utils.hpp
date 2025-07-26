@@ -50,12 +50,6 @@ namespace Orchestra
         else
             return std::unique_ptr<T, D>(nullptr, other.get_deleter());
     }
-    inline wchar_t CharToWChar(const char& ch)
-    {
-        wchar_t wch;
-        std::mbtowc(&wch, &ch, 1);
-        return wch;
-    }
     inline bool IsValidURL(const std::string& url)
     {
         // Regular expression to match basic URL structure

@@ -18,11 +18,65 @@ extern "C"
 #include "../Utils.hpp"
 #include "../FFmpeg/Decoder.hpp"
 
+//main stuff
 namespace Orchestra
 {
-    Player::Player(const uint32_t& sentPacketsSize, const bool& enableLogSentPackets)
-        : m_SentPacketSize(sentPacketsSize), m_EnableLogSentPackets(enableLogSentPackets), m_BassBoostSettings(0.f, 0.f, 0.f) {}
+    Player::Player(uint32_t sentPacketsSize, bool enableLogSentPackets)
+        : m_SentPacketSize(sentPacketsSize), m_EnableLogSentPackets(enableLogSentPackets), m_BassBoostSettings(0.f, 0.f, 0.f) {
+    }
+    Player::Player(const Player& other)
+    {
+        CopyFrom(other);
+    }
+    Player& Player::operator=(const Player& other)
+    {
+        CopyFrom(other);
 
+        return *this;
+    }
+    Player::Player(Player&& other) noexcept
+    {
+        MoveFrom(std::move(other));
+    }
+    Player& Player::operator=(Player&& other) noexcept
+    {
+        MoveFrom(std::move(other));
+
+        return *this;
+    }
+
+    void Player::CopyFrom(const Player& other)
+    {
+        m_Decoder = other.m_Decoder;
+        m_SentPacketSize = other.m_SentPacketSize;
+        m_EnableLogSentPackets = other.m_EnableLogSentPackets;
+        m_IsDecoding = other.m_IsDecoding.load();
+        m_IsSkippingFrames = other.m_IsSkippingFrames.load();
+        m_ShouldReturnToCurrentTimestamp = other.m_ShouldReturnToCurrentTimestamp.load();
+        m_PreviousSampleRate = other.m_PreviousSampleRate.load();
+        m_IsPaused = other.m_IsPaused.load();
+        m_CurrentTimestamp = other.m_CurrentTimestamp.load();
+        m_BassBoostSettings = other.m_BassBoostSettings;
+        m_EqualizerFrequencies = other.m_EqualizerFrequencies;
+    }
+    void Player::MoveFrom(Player&& other) noexcept
+    {
+        m_Decoder = std::move(other.m_Decoder);
+        m_SentPacketSize = other.m_SentPacketSize;
+        m_EnableLogSentPackets = other.m_EnableLogSentPackets;
+        m_IsDecoding = other.m_IsDecoding.load();
+        m_IsSkippingFrames = other.m_IsSkippingFrames.load();
+        m_ShouldReturnToCurrentTimestamp = other.m_ShouldReturnToCurrentTimestamp.load();
+        m_PreviousSampleRate = other.m_PreviousSampleRate.load();
+        m_IsPaused = other.m_IsPaused.load();
+        m_CurrentTimestamp = other.m_CurrentTimestamp.load();
+        m_BassBoostSettings = other.m_BassBoostSettings;
+        m_EqualizerFrequencies = std::move(other.m_EqualizerFrequencies);
+    }
+}
+namespace Orchestra
+{
+    //TODO: maybe remake it somehow with WaitUntil
     void Player::LazyDecodingCheck(const std::chrono::milliseconds& toWait, std::unique_lock<std::mutex>& pauseLock, const std::chrono::milliseconds& sleepFor)
     {
         auto startedTime = std::chrono::steady_clock::now();
@@ -39,6 +93,7 @@ namespace Orchestra
             std::this_thread::sleep_for(sleepFor);
         }
     }
+
     void Player::DecodeAndSendAudio(const dpp::voiceconn* voice)
     {
         O_ASSERT(m_Decoder.IsReady(), "m_Decoder is not ready.");
@@ -182,7 +237,7 @@ namespace Orchestra
 
         Pause(false);
     }
-    void Player::Pause(const bool& pause)
+    void Player::Pause(bool pause)
     {
         m_IsPaused = pause;
         m_PauseCondition.notify_all();
@@ -195,20 +250,20 @@ namespace Orchestra
         m_PauseCondition.notify_all();
     }
 
-    void Player::SkipToSeconds(const float& seconds)
+    void Player::SkipToSeconds(float seconds)
     {
         m_Decoder.SkipToSeconds(seconds);
         m_CurrentTimestamp = seconds;
         m_IsSkippingFrames = true;
     }
-    void Player::SkipSeconds(const float& seconds)
+    void Player::SkipSeconds(float seconds)
     {
         m_CurrentTimestamp += seconds;
         m_Decoder.SkipToSeconds(m_CurrentTimestamp);
         m_IsSkippingFrames = true;
     }
 
-    void Player::SetDecoder(const std::string_view& url, const uint32_t& sampleRate)
+    void Player::SetDecoder(const std::string_view& url, int sampleRate)
     {
         m_Decoder = Decoder{ url, sampleRate };
     }
@@ -222,7 +277,7 @@ namespace Orchestra
         return m_Decoder.IsReady();
     }
 
-    void Player::SetBassBoost(const float& decibelsBoost, const float& frequencyToAdjust, const float& bandwidth)
+    void Player::SetBassBoost(float decibelsBoost, float frequencyToAdjust, float bandwidth)
     {
         std::lock_guard bassBoostSettingsLock{ m_DecodingMutex };
 
@@ -247,7 +302,7 @@ namespace Orchestra
         }
     }
 
-    void Player::InsertOrAssignEqualizerFrequency(const float& frequency, const float& decibelsBoost)
+    void Player::InsertOrAssignEqualizerFrequency(float frequency, float decibelsBoost)
     {
         std::lock_guard equalizersLock{ m_DecodingMutex };
 
@@ -269,7 +324,7 @@ namespace Orchestra
                 Pause(false);
         }
     }
-    void Player::EraseEqualizerFrequency(const float& frequency)
+    void Player::EraseEqualizerFrequency(float frequency)
     {
         std::lock_guard equalizersLock{ m_DecodingMutex };
 
@@ -313,8 +368,11 @@ namespace Orchestra
                 Pause(false);
         }
     }
-
-    void Player::SetAudioSampleRate(const uint32_t& sampleRate)
+}
+//getters, setters
+namespace Orchestra
+{
+    void Player::SetAudioSampleRate(uint32_t sampleRate)
     {
         const bool wasPaused = m_IsPaused;
 
@@ -331,11 +389,11 @@ namespace Orchestra
             Pause(false);
     }
 
-    void Player::SetEnableLogSentPackets(const bool& enable)
+    void Player::SetEnableLogSentPackets(bool enable)
     {
         m_EnableLogSentPackets = enable;
     }
-    void Player::SetSentPacketSize(const uint32_t& size)
+    void Player::SetSentPacketSize(uint32_t size)
     {
         m_SentPacketSize = size;
     }

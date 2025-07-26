@@ -37,7 +37,7 @@ namespace Orchestra
         m_AudioStreamIndex(std::numeric_limits<uint32_t>::max()),
         m_OutSampleFormat(AV_SAMPLE_FMT_NONE),
         m_OutSampleRate(0) {}
-    Decoder::Decoder(const std::string_view& url, const uint32_t& outSampleRate, const AVSampleFormat& outSampleFormat)
+    Decoder::Decoder(const std::string_view& url, int outSampleRate, AVSampleFormat outSampleFormat)
         : m_FormatContext(nullptr, FFmpegUniquePtrManager::FreeFormatContext),
         m_CodecContext(nullptr, FFmpegUniquePtrManager::FreeAVCodecContext),
         m_SwrContext(nullptr, FFmpegUniquePtrManager::FreeSwrContext),
@@ -185,7 +185,7 @@ namespace Orchestra
         return out;
     }
 
-    void Decoder::SkipToTimestamp(const int64_t& timestamp) const
+    void Decoder::SkipToTimestamp(int64_t timestamp) const
     {
         O_ASSERT(timestamp >= 0 && (timestamp * GetTimestampToSecondsRatio() * AV_TIME_BASE) <= GetTotalDuration(), "The skipping timestamp ", timestamp, " is bigger or lesser than duration.");//TODO
 
@@ -193,15 +193,15 @@ namespace Orchestra
 
         avcodec_flush_buffers(m_CodecContext.get());
     }
-    void Decoder::SkipTimestamp(const int64_t& timestamp) const
+    void Decoder::SkipTimestamp(int64_t timestamp) const
     {
         SkipToTimestamp(timestamp + GetCurrentTimestamp());
     }
-    void Decoder::SkipToSeconds(const float& seconds) const
+    void Decoder::SkipToSeconds(float seconds) const
     {
         SkipToTimestamp(seconds / GetTimestampToSecondsRatio());
     }
-    void Decoder::SkipSeconds(const float& seconds) const
+    void Decoder::SkipSeconds(float seconds) const
     {
         SkipTimestamp(seconds / GetTimestampToSecondsRatio());
     }
@@ -223,7 +223,7 @@ namespace Orchestra
         O_ASSERT(avfilter_graph_config(m_FilterGraph.get(), nullptr) >= 0, "Failed to configure filter graph.");
     }
 
-    uint32_t Decoder::FindStreamIndex(const AVMediaType& mediaType) const
+    uint32_t Decoder::FindStreamIndex(AVMediaType mediaType) const
     {
         if(m_AudioStreamIndex == std::numeric_limits<uint32_t>::max())
             for(uint32_t i = 0; i < m_FormatContext->nb_streams; i++)
@@ -264,7 +264,7 @@ namespace Orchestra
 //getters, setters
 namespace Orchestra
 {
-    void Decoder::SetBassBoost(const float& decibelsBoost, const float& frequencyToAdjust, const float& bandwidth) const
+    void Decoder::SetBassBoost(float decibelsBoost, float frequencyToAdjust, float bandwidth) const
     {
         using namespace GuelderConsoleLog;
 
@@ -309,7 +309,7 @@ namespace Orchestra
         return m_CodecContext->sample_fmt;
     }
 
-    void Decoder::SetOutSampleFormat(const AVSampleFormat& sampleFormat)
+    void Decoder::SetOutSampleFormat(AVSampleFormat sampleFormat)
     {
         m_OutSampleFormat = sampleFormat;
 
@@ -326,7 +326,7 @@ namespace Orchestra
 
         O_ASSERT(swr_init(m_SwrContext.get()) >= 0, "Failed to initialize swrContext");
     }
-    void Decoder::SetOutSampleRate(const uint32_t& sampleRate)
+    void Decoder::SetOutSampleRate(int sampleRate)
     {
         m_OutSampleRate = sampleRate;
 
