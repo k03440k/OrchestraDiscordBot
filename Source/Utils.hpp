@@ -13,6 +13,28 @@
 #define O_ASSERT(condition, ...) GE_CASSERT(condition, O_EXCEPTION(::GuelderConsoleLog::Logger::Format(__VA_ARGS__), GE_MAKE_FULL_ERROR_STRING(::GuelderConsoleLog::Logger::Format(__VA_ARGS__))))
 #define O_THROW(...) GE_CTHROW(O_EXCEPTION(::GuelderConsoleLog::Logger::Format(__VA_ARGS__), GE_MAKE_FULL_ERROR_STRING(::GuelderConsoleLog::Logger::Format(__VA_ARGS__))))
 
+#define O_STRUCT_GUARD_NAME(name) GE_CONCATENATE(name, Guard)
+
+//use it in scopes, so the lock gets destroyed
+#define O_DEFINE_STRUCT_GUARD(dataTypeName, mutexType)\
+    struct O_STRUCT_GUARD_NAME(dataTypeName)\
+    {\
+        public:\
+        O_STRUCT_GUARD_NAME(dataTypeName) (mutexType& _mutex, dataTypeName* _data)\
+            : m_Lock(_mutex), m_Pointer(_data) { ::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been locked."); }\
+        O_STRUCT_GUARD_NAME(dataTypeName)(O_STRUCT_GUARD_NAME(dataTypeName)&& other) noexcept = default;\
+        O_STRUCT_GUARD_NAME(dataTypeName)& operator=(O_STRUCT_GUARD_NAME(dataTypeName)&& other) noexcept = default;\
+        ~O_STRUCT_GUARD_NAME(dataTypeName)() { ::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been deleted."); }\
+        dataTypeName* operator->() { return m_Pointer; }\
+        void Unlock() { ::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been unlocked."); m_Pointer = nullptr; m_Lock.unlock(); }\
+        private:\
+        std::unique_lock<mutexType> m_Lock;\
+        dataTypeName* m_Pointer;\
+    }
+#define O_DEFINE_STRUCT_GUARD_STD_MUTEX(dataTypeName) O_DEFINE_STRUCT_GUARD(dataTypeName, std::mutex)
+
+#define O_DEFINE_STRUCT_GUARD_GETTER(dataTypeName, ptrDataName, mutexName) O_STRUCT_GUARD_NAME(dataTypeName) GE_CONCATENATE(Access, dataTypeName)() { return { mutexName, ptrDataName }; }
+
 namespace Orchestra
 {
     GE_DECLARE_LOG_CATEGORY_DEFAULT_COLORS_CONSTEXPR(Orchestra, All, true, false, true);
@@ -22,6 +44,13 @@ namespace Orchestra
         requires(T a) {
             { std::begin(a) } -> std::input_or_output_iterator;
             { std::end(a) } -> std::input_or_output_iterator;
+    };
+
+    template<typename FunctionType, typename ReturnType, typename... Args>
+    concept Function =
+        requires(FunctionType function, Args... args)
+    {
+        {function(args...)} -> std::same_as<ReturnType>;
     };
 
     class OrchestraException : public std::exception

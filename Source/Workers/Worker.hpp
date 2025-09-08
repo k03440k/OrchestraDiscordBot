@@ -9,10 +9,10 @@ namespace Orchestra
     struct Worker
     {
     public:
-        Worker(size_t index, std::function<T()> work, std::function<void(const _Exception&)> exceptionDeleter = []{})
+        Worker(size_t index, std::function<T()> work, std::function<void(const _Exception&)> customExceptionDeleter = []{}, std::function<void(const std::exception&)> exceptionDeleter = []{})
             : m_Index(index), m_HasWorkBeenStarted(false),
         m_Work(
-            [_work = std::move(work), _exceptionDeleter = std::move(exceptionDeleter)]
+            [_work = std::move(work), _customExceptionDeleter = std::move(customExceptionDeleter), _exceptionDeleter = std::move(exceptionDeleter)]
             {
                 try
                 {
@@ -20,19 +20,21 @@ namespace Orchestra
                 }
                 catch(const _Exception& e)
                 {
-                    _exceptionDeleter(e);
+                    _customExceptionDeleter(e);
                     throw e;
                 }
                 catch (const std::exception& e)
                 {
-                    GE_LOG(Orchestra, Warning, "Caught exception: ", e.what());
+                    //GE_LOG(Orchestra, Warning, "Caught exception: ", e.what());
+                    _exceptionDeleter(e);
                     throw e;
                 }
                 catch(...)
                 {
                     const auto e = std::exception{"Unknown exception"};
                     //_exceptionDeleter(e);
-                    GE_LOG(Orchestra, Warning, "Caught unknown exception.");
+                    //GE_LOG(Orchestra, Warning, "Caught unknown exception.");
+                    _exceptionDeleter(e);
                     throw e;
                 }
             }) {}

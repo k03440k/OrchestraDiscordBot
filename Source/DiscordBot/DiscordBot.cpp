@@ -14,47 +14,12 @@
 
 namespace Orchestra
 {
-    DiscordBot::DiscordBot(const std::string& token, std::string commandPrefix, char paramNamePrefix, uint32_t intents)
-        : dpp::cluster(token.data(), intents), m_Prefix(std::move(commandPrefix)), m_ParamNamePrefix(paramNamePrefix) {}
+    DiscordBot::DiscordBot(const std::string& token, uint32_t intents)
+        : dpp::cluster(token, intents) {}
 
     void DiscordBot::AddCommand(Command command)
     {
         m_Commands.push_back(std::move(command));
-    }
-    void DiscordBot::RegisterCommands()
-    {
-        m_WorkersManger.Reserve(m_Commands.size());
-
-        on_message_create(
-            [this](const dpp::message_create_t& message)
-            {
-                if(message.msg.attachments.empty() && message.msg.author.id != me.id)
-                {
-                    const auto& content = message.msg.content;
-
-                    if(const auto foundPrefix = std::ranges::search(content, m_Prefix); foundPrefix.begin() == content.begin())
-                    {
-                        const size_t commandOffset = foundPrefix.size();
-
-                        auto [parsedCommand, index] = ParseCommand(m_Commands, content, commandOffset, m_ParamNamePrefix);
-
-                        const auto command = m_Commands.begin() + index;
-
-                        GE_LOG(Orchestra, Info, "User with snowflake: ", message.msg.author.id, " has just called \"", parsedCommand.name, "\" command.");
-
-                        const size_t id = m_WorkersManger.AddWorker(
-                            [message, command, _parsedCommand = std::move(parsedCommand), this]
-                            {
-                                (*command)(message, _parsedCommand.params, _parsedCommand.value);
-                            },
-                            [message](const OrchestraException& oe) { message.reply(GuelderConsoleLog::Logger::Format("**Exception:** ", oe.GetUserMessage())); },
-                            true);
-
-                        m_WorkersManger.Work(id);
-                    }
-                }
-            }
-        );
     }
     void DiscordBot::Run()
     {
@@ -66,6 +31,7 @@ namespace Orchestra
     {
         on_log(std::move(logger));
     }
+
     DiscordBot::ParsedCommandWithIndex DiscordBot::ParseCommand(const std::vector<Command>& supportedCommands, const std::string_view& message, size_t commandOffset, char paramNamePrefix)
     {
         using CommandsIterator = decltype(supportedCommands.begin());
@@ -103,7 +69,7 @@ namespace Orchestra
             for(size_t i = commandEndOffset; i < message.size(); i++)
             {
                 //setting its name
-                if(message[i - 1] == ' ' && message[i] == paramNamePrefix && i + 1 < message.size() && IsValidParamNameChar(message[i + 1]))
+                if(message[i - 1] == ' ' && message[i] == paramNamePrefix && i + 1 < message.size() && IsValidParamNameBeginningChar(message[i + 1]))
                 {
                     paramsValuesCount = 0;
                     paramsCount++;
@@ -213,11 +179,15 @@ namespace Orchestra
     }
     bool DiscordBot::IsValidParamNameChar(char ch)
     {
+        return std::isalnum(ch) || ch == '_';
+    }
+    bool DiscordBot::IsValidParamNameBeginningChar(char ch)
+    {
         return std::isalpha(ch) || ch == '_';
     }
     bool DiscordBot::IsValidParamValueChar(char ch)
     {
-        //return std::isalnum(ch) || ch == '.' || ch == ',' || ch == '-';
-        return !IsSpecialChar(ch);
+        return IsValidParamNameChar(ch) || ch == '.' || ch == ',' || ch == '-';
+        //return !IsSpecialChar(ch) || ch == '-';
     }
 }

@@ -14,22 +14,12 @@ namespace Orchestra
     size_t TracksQueue::s_CurrentUniqueTrackIndex = 0;
     size_t TracksQueue::s_CurrentUniquePlaylistIndex = 0;
 
-    TracksQueue::TracksQueue(std::string yt_dlpPath)
-        : m_Yt_DlpManager(std::move(yt_dlpPath)), m_RandomEngine(m_RandomDevice()) {}
+    TracksQueue::TracksQueue(std::filesystem::path yt_dlpExecutablePath)
+        : m_Yt_DlpManager(std::move(yt_dlpExecutablePath)) {}
 
-    TracksQueue& TracksQueue::operator=(TracksQueue&& other) noexcept
+    void TracksQueue::FetchURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url, std::mt19937 randomEngine, bool doShuffle, float speed, size_t repeat, size_t insertIndex)
     {
-        m_Yt_DlpManager = std::move(other.m_Yt_DlpManager);
-        m_Tracks = std::move(other.m_Tracks);
-        m_PlaylistInfos = std::move(other.m_PlaylistInfos);
-        m_RandomEngine = std::mt19937{m_RandomDevice()};
-
-        return *this;
-    }
-
-    void TracksQueue::FetchURL(const std::string_view& url, bool doShuffle, float speed, size_t repeat, size_t insertIndex)
-    {
-        m_Yt_DlpManager.FetchURL(url);
+        m_Yt_DlpManager.FetchURL(yt_dlpExecutablePath, url);
 
         AdjustInsertIndex(insertIndex);
 
@@ -46,21 +36,19 @@ namespace Orchestra
                 indices[i] = i;
 
             if(doShuffle)
-                std::ranges::shuffle(indices, m_RandomEngine);
+                std::ranges::shuffle(indices, randomEngine);
 
             size_t exceptionCounter = 0;
             for(size_t i = 0; i < indices.size(); i++)
-            {
                 try
                 {
-                    InsertTrackInfo(insertIndex + (i - exceptionCounter), m_Yt_DlpManager.GetTrackInfo(indices[i], false), speed, 1);
+                    InsertTrackInfo(insertIndex + (i - exceptionCounter), m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, indices[i], false), speed, repeat);
                 }
                 catch(const std::exception& exception)
                 {
                     exceptionCounter += 2;
                     GE_LOG(Orchestra, Warning, "Exception occured during getting track infos from a playlist, skipping the track. Exception: ", exception.what());
                 }
-            }
 
             playlistSize -= exceptionCounter;
 
@@ -68,7 +56,6 @@ namespace Orchestra
 
             //it is almost the same as AdjustPlaylistInfosIndicesAfterInsertion, but isThisPlaylistInnerPlaylist = true;
             for(auto&& playlistInfo : m_PlaylistInfos)
-            {
                 if(insertIndex < playlistInfo.beginIndex)
                 {
                     playlistInfo.beginIndex += playlistSize;
@@ -83,7 +70,6 @@ namespace Orchestra
 
                     playlistInfo.endIndex += playlistSize;
                 }
-            }
 
             if(!isThisPlaylistInnerPlaylist)
             {
@@ -95,26 +81,36 @@ namespace Orchestra
                 }
                 catch(...) {}
 
-                m_PlaylistInfos.emplace_back(std::move(playlistTitle), insertIndex, playlistSize - 1 + insertIndex, repeat, s_CurrentUniquePlaylistIndex++);
+                m_PlaylistInfos.emplace_back(std::move(playlistTitle), insertIndex, playlistSize - 1 + insertIndex, 1, s_CurrentUniquePlaylistIndex++);
             }
         }
         else
         {
-            InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(0, true), speed, repeat);
+            InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, 0, true), speed, repeat);
 
             AdjustPlaylistInfosIndicesAfterInsertion(insertIndex, 1);
         }
     }
-    void TracksQueue::FetchSearch(const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex)
+    void TracksQueue::FetchURL(const std::string_view& url, std::mt19937 randomEngine, bool doShuffle, float speed, size_t repeat, size_t insertIndex)
+    {
+        FetchURL(m_Yt_DlpManager.GetYt_dlpExecutablePath(), url, randomEngine, doShuffle, speed, repeat, insertIndex);
+    }
+
+    void TracksQueue::FetchSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex)
     {
         AdjustInsertIndex(insertIndex);
 
-        m_Yt_DlpManager.FetchSearch(input, searchEngine);
+        m_Yt_DlpManager.FetchSearch(yt_dlpExecutablePath, input, searchEngine);
 
-        InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(0, true), speed, repeat);
+        InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, 0, true), speed, repeat);
 
         AdjustPlaylistInfosIndicesAfterInsertion(insertIndex, 1);
     }
+    void TracksQueue::FetchSearch(const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex)
+    {
+        FetchSearch(m_Yt_DlpManager.GetYt_dlpExecutablePath(), input, searchEngine, speed, repeat, insertIndex);
+    }
+
     //fills rawURL, NOT URL
     void TracksQueue::FetchRaw(std::string url, float speed, size_t repeat, size_t insertIndex)
     {
@@ -122,20 +118,22 @@ namespace Orchestra
 
         AdjustInsertIndex(insertIndex);
 
-        InsertTrackInfo(insertIndex, { .rawURL = std::move(url), .title = std::move(url) }, speed, repeat);
+        InsertTrackInfo(insertIndex, { .rawURL = url, .title = std::move(url) }, speed, repeat);
 
         AdjustPlaylistInfosIndicesAfterInsertion(insertIndex, 1);
     }
 
-    //but this indeed gets a raw url
-    //WARNING: Use this if only you are sure that your track info doesn't have a raw url, as for playlists, their tracks do not have those
-    const TrackInfo& TracksQueue::GetRawTrackURL(size_t index)
+    const TrackInfo& TracksQueue::GetRawTrackURL(const std::filesystem::path& yt_dlpExecutablePath, size_t index)
     {
         TrackInfo& trackInfo = m_Tracks[index];
 
-        trackInfo.rawURL = m_Yt_DlpManager.GetRawURLFromURL(trackInfo.URL);
+        trackInfo.rawURL = Yt_DlpManager::GetRawURLFromURL(yt_dlpExecutablePath, trackInfo.URL);
 
         return trackInfo;
+    }
+    const TrackInfo& TracksQueue::GetRawTrackURL(size_t index)
+    {
+        return GetRawTrackURL(m_Yt_DlpManager.GetYt_dlpExecutablePath(), index);
     }
 
     void TracksQueue::DeleteTrack(size_t index)
@@ -152,9 +150,7 @@ namespace Orchestra
                 playlistInfo.endIndex--;
             }
             else if(index <= playlistInfo.endIndex)
-            {
                 playlistInfo.endIndex--;
-            }
 
             if(playlistInfo.beginIndex == playlistInfo.endIndex)
             {
@@ -233,7 +229,7 @@ namespace Orchestra
     }
 
     //TODO: use speed
-    void TracksQueue::AddPlaylist(size_t start, size_t end, float speed, size_t repeatCount, std::string name)
+    void TracksQueue::AddPlaylist(size_t start, size_t end, float speed, size_t repeat, std::string name)
     {
         //check if intersects
         bool add = true;
@@ -250,7 +246,11 @@ namespace Orchestra
             }
         }
 
-        m_PlaylistInfos.emplace_back(std::move(name), start, end, repeatCount);
+        //but if there is current track, ...
+        for(size_t i = start; i < end + 1; i++)
+            m_Tracks[i].speed = speed;
+
+        m_PlaylistInfos.emplace_back(std::move(name), start, end, repeat);
     }
 
     void TracksQueue::DeletePlaylist(size_t index)
@@ -263,14 +263,15 @@ namespace Orchestra
         m_PlaylistInfos.clear();
     }
 
-    void TracksQueue::Shuffle(size_t from, size_t to, size_t indexToSetFirst)
+    //idk
+    void TracksQueue::Shuffle(std::mt19937& randomEngine, size_t from, size_t to, size_t indexToSetFirst)
     {
         if(indexToSetFirst == std::numeric_limits<size_t>::max())
-            std::shuffle(m_Tracks.begin() + from, m_Tracks.begin() + to, m_RandomEngine);
+            std::shuffle(m_Tracks.begin() + from, m_Tracks.begin() + to, randomEngine);
         else
         {
             TransferTrack(indexToSetFirst, from);
-            std::shuffle(m_Tracks.begin() + from + 1, m_Tracks.begin() + to, m_RandomEngine);
+            std::shuffle(m_Tracks.begin() + from + 1, m_Tracks.begin() + to, randomEngine);
         }
     }
 

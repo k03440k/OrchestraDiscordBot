@@ -51,24 +51,14 @@ namespace Orchestra
                         _func();
 
                         if(remove)
-                        {
-                            std::thread removeThread([this, index] { RemoveWorker(index); });
-                            removeThread.detach();
-                        }
-
-                        GE_LOG(Orchestra, Info, "Deleting worker with index ", index, '.');
+                            RemoveWorkerAsync(index);
                     }
                     else
                     {
                         auto result = _func();
 
                         if(remove)
-                        {
-                            std::thread removeThread([this, index] { RemoveWorker(index); });
-                            removeThread.detach();
-                        }
-
-                        GE_LOG(Orchestra, Info, "Deleting worker with index ", index, '.');
+                            RemoveWorkerAsync(index);
 
                         return result;
                     }
@@ -76,12 +66,14 @@ namespace Orchestra
                 [this, index = m_WorkersCurrentIndex.load(), remove, _exceptionDeleter = std::move(exceptionDeleter)](const _Exception& e)
                 {
                     _exceptionDeleter(e);
+
                     if(remove)
-                    {
-                        std::thread removeThread([this, index] { RemoveWorker(index); });
-                        removeThread.detach();
-                    }
-                    GE_LOG(Orchestra, Error, "Deleting worker with index ", index, " because an exception occured: ", e.what());
+                        RemoveWorkerAsync(index, e);
+                },
+                [this, index = m_WorkersCurrentIndex.load(), remove](const std::exception& e)
+                {
+                    if(remove)
+                        RemoveWorkerAsync(index, e);
                 }
             );
             ++m_WorkersCurrentIndex;
@@ -98,6 +90,8 @@ namespace Orchestra
                 m_Workers.erase(found);
             else
                 O_THROW("Failed to find worker with index ", index, '.');
+
+            GE_LOG(Orchestra, Info, "Deleted worker with index ", index, ". m_Workers.size() = ", m_Workers.size());
         }
 
         void Reserve(size_t reserve)
@@ -107,6 +101,15 @@ namespace Orchestra
             m_Workers.reserve(reserve);
         }
 
+        const WorkerType& GetWorker(size_t index) const
+        {
+            std::lock_guard lock{ m_WorkersMutex };
+
+            auto found = std::ranges::find_if(m_Workers, [&index](const WorkerType& worker) { return worker.GetIndex() == index; });
+
+            if(found != m_Workers.end())
+                return *found;
+        }
         //WARNING: it doesn't return the result instantly
         const std::vector<WorkerType>& GetWorkers() const noexcept
         {
@@ -128,6 +131,31 @@ namespace Orchestra
                 return found->GetFutureResult();
             else
                 O_THROW("Failed to find worker with index ", index, '.');
+        }
+
+    private:
+        template<GuelderConsoleLog::Concepts::IsException _ExceptionType = _Exception>
+            requires requires (_ExceptionType e)
+        {
+            e.what();
+        }
+        void RemoveWorkerAsync(size_t index, _ExceptionType exception)
+        {
+            std::thread removeThread([this, index, _exception = std::move(exception)]
+                {
+                    RemoveWorker(index);
+                    GE_LOG(Orchestra, Error, "Deleted worker with index ", index, " because an ", typeid(_ExceptionType).name(), " occured: ", _exception.what());
+                });
+            removeThread.detach();
+        }
+        void RemoveWorkerAsync(size_t index)
+        {
+            std::thread removeThread([this, index]
+                {
+                    RemoveWorker(index);
+                    GE_LOG(Orchestra, Info, "Deleting worker with index ", index, '.');
+                });
+            removeThread.detach();
         }
 
     private:

@@ -15,6 +15,7 @@ set(PROJECT_HEADERS
 
 	"Source/DiscordBot/Command.hpp"
 	"Source/DiscordBot/DiscordBot.hpp"
+	"Source/DiscordBot/OrchestraDiscordBotInstance.hpp"
 	"Source/DiscordBot/OrchestraDiscordBot.hpp"
 	"Source/DiscordBot/Player.hpp"
 	"Source/DiscordBot/Yt_DlpManager.hpp"
@@ -31,7 +32,9 @@ set(PROJECT_SOURCES
 	
 	"Source/DiscordBot/Command.cpp"
 	"Source/DiscordBot/DiscordBot.cpp"
+	"Source/DiscordBot/OrchestraDiscordBotInstance.cpp"
 	"Source/DiscordBot/OrchestraDiscordBot.cpp"
+	"Source/DiscordBot/OrchestraDiscordBotCommands.cpp"
 	"Source/DiscordBot/Player.cpp"
 	"Source/DiscordBot/Yt_DlpManager.cpp"
 	"Source/DiscordBot/TracksQueue.cpp"
@@ -175,3 +178,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT "${PROJECT_NAME}")
 set_target_properties(${PROJECT_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set_target_properties(${PROJECT_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
+if (MSVC)
+    add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+endif()

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <mutex>
 #include <future>
 #include <chrono>
@@ -9,30 +8,43 @@
 #include <dpp/dpp.h>
 
 #include "DiscordBot.hpp"
-#include "Player.hpp"
+#include "OrchestraDiscordBotInstance.hpp"
 #include "Yt_DlpManager.hpp"
 #include "TracksQueue.hpp"
 
 namespace Orchestra
 {
-    class OrchestraDiscordBot : public DiscordBot
+    class OrchestraDiscordBot final : public DiscordBot
     {
     public:
-        OrchestraDiscordBot(const std::string& token, std::string yt_dlpPath, std::string commandPrefix = "!", char paramPrefix = '-', uint32_t intents = dpp::i_all_intents);
+        using BotInstanceProperties = OrchestraDiscordBotInstanceProperties;
+        using FullBotInstanceProperties = FullOrchestraDiscordBotInstanceProperties;
+        using BotPlayer = OrchestraDiscordBotPlayer;
+        using BotInstance = OrchestraDiscordBotInstance;
+    public:
+        struct Paths
+        {
+            std::filesystem::path executablePath;
+            std::filesystem::path commandsNamesConfigPath;
+            std::filesystem::path commandsDescriptionsConfigPath;
+            std::filesystem::path historyLogPath;
+            std::filesystem::path guildsConfigPath;
+            std::filesystem::path yt_dlpExecutablePath;
+        };
+
+    public:
+        OrchestraDiscordBot(const std::string& token, Paths paths, FullBotInstanceProperties defaultGuildsValues = {}, dpp::snowflake bossSnowflake = 0, uint32_t intents = dpp::i_all_intents);
 
         //setters, getters
     public:
-        void SetEnableLogSentPackets(bool enable);
-        void SetSentPacketSize(uint32_t size);
-        void SetAdminSnowflake(dpp::snowflake id);
+        void SetBossSnowflake(const dpp::snowflake& bossSnowflake);
+        const dpp::snowflake& GetBossSnowflake() const;
 
-        /*bool GetEnableLogSentPackets() const noexcept;
-        uint32_t GetSentPacketSize() const noexcept;
-        dpp::snowflake GetAdminSnowflake() const noexcept;*/
+        void RegisterCommands() override;
 
     private:
         void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
-        void CommandCurrentTrack(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
+        void CommandCurrent(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
         void CommandPlaylist(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
@@ -52,14 +64,12 @@ namespace Orchestra
         void CommandTerminate(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
 
     private:
-        struct BotPlayer;
-
         static void ConnectToMemberVoice(const dpp::message_create_t& message);
 
         void WaitUntilJoined(const dpp::snowflake& guildID, const std::chrono::milliseconds& delay);
         dpp::voiceconn* IsVoiceConnectionReady(const dpp::snowflake& guildID);
 
-        void AddToQueue(const dpp::message_create_t& message, const std::vector<Param>& params, std::string value, size_t insertIndex = std::numeric_limits<size_t>::max());
+        void AddToQueue(const std::string_view& commandName, const dpp::message_create_t& message, const std::vector<Param>& params, std::string value, size_t insertIndex = std::numeric_limits<size_t>::max());
 
         template<GuelderConsoleLog::Concepts::STDOut... Args>
         static void Reply(const dpp::message_create_t& message, Args&&... args)
@@ -83,39 +93,33 @@ namespace Orchestra
         uint32_t GetCurrentPlaylistIndex(const dpp::snowflake& guildID);
         void ReplyWithInfoAboutTrack(const dpp::snowflake& guildID, const dpp::message_create_t& message, const TrackInfo& trackInfo, bool outputURL = true, bool printCurrentTimestamp = false);
 
+        BotInstance& GetBotInstance(const dpp::snowflake& guildID);
         BotPlayer& GetBotPlayer(const dpp::snowflake& guildID);
 
+        static std::string GetRawVariableValue(const GuelderResourcesManager::ConfigFile& configFile, const std::string_view& path);
+        std::string GetParamName(const std::string_view& commandName, const std::string_view& paramName) const;
+
+        bool CommandChecker(const dpp::message_create_t& message, ParsedCommand& parsedCommand);
+
+        void LogMessage(const std::filesystem::path& historyLogPath, const dpp::message& message);
+        std::string LogMessage(std::string scope, const dpp::message& message, std::string messageNamespacePath = "", uint32_t maxDownloadFileSize = 0, std::filesystem::path fileSavePath = "");
+
     private:
-
-        struct BotPlayer
-        {
-            BotPlayer() = default;
-            BotPlayer(const std::string_view& yt_dlpPath, const dpp::snowflake& adminSnowflake = 0, const std::string_view& prefix = "!", const char& paramPrefix = '-');
-
-            BotPlayer& operator=(BotPlayer&& other) noexcept;
-
-            Player player;
-
-            dpp::snowflake adminSnowflake;
-
-            std::atomic_bool isStopped;
-            std::mutex playMutex;
-
-            std::atomic_bool isJoined;
-            std::condition_variable joinedCondition;
-            std::mutex joinMutex;
-
-            TracksQueue tracksQueue;
-            std::atomic_uint32_t currentTrackIndex;
-            std::atomic_uint32_t currentPlaylistIndex;
-            mutable std::mutex tracksQueueMutex;
-        };
-
-        //first - guild id, second is BotPlayer instance
-        std::unordered_map<dpp::snowflake, BotPlayer> m_GuildsBotPlayers;
+        //first - guild id, second is BotInstance
+        std::unordered_map<dpp::snowflake, BotInstance> m_GuildsBotInstances;
         std::mutex m_GuildCreateMutex;
 
-        std::vector<std::function<void()>> m_OnReadyCallbacks;
+        dpp::snowflake m_BossSnowflake;
+
+        //std::vector<std::function<void()>> m_OnReadyCallbacks;
         bool m_IsReady;
+
+        std::mt19937 m_RandomEngine;
+
+        Paths m_Paths;
+
+        GuelderResourcesManager::ConfigFile m_CommandsNamesConfig;
+
+        std::mutex m_HistoryLogMutex;
     };
 }

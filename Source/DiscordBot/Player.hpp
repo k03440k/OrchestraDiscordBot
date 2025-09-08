@@ -47,6 +47,7 @@ namespace Orchestra
         void ResetDecoder();
         bool IsDecoderReady() const;
 
+        void SetBassBoost(BassBoostSettings bassBoostSettings);
         void SetBassBoost(float decibelsBoost = 0.f, float frequencyToAdjust = 0.f, float bandwidth = 0.f);
 
         void InsertOrAssignEqualizerFrequency(float frequency, float decibelsBoost);

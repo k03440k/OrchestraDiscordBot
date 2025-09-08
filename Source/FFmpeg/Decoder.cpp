@@ -63,14 +63,14 @@ namespace Orchestra
 
         AVFormatContext* f = avformat_alloc_context();
 
-        O_ASSERT(f, "Failed to initialize format context.");
+        O_ASSERT(f, "Failed to initialize format context");
 
         //WTF?! why when I use m_FormatContext as ptr it crashes, but when a default ptr it works fine!!????
         //auto ptr = m_FormatContext.get();
         auto ptr = f;
         O_ASSERT(avformat_open_input(&ptr, url.data(), nullptr, &options) == 0, "Failed to open url: ", url);
 
-        O_ASSERT((avformat_find_stream_info(ptr, nullptr)) >= 0, "Failed to retrieve stream info.");
+        O_ASSERT((avformat_find_stream_info(ptr, nullptr)) >= 0, "Failed to retrieve stream info");
 
         m_FormatContext.reset(f);
         f = nullptr;
@@ -82,8 +82,8 @@ namespace Orchestra
 
         m_CodecContext = FFmpegUniquePtrManager::UniquePtrAVCodecContext(avcodec_alloc_context3(codec), FFmpegUniquePtrManager::FreeAVCodecContext);
 
-        O_ASSERT(avcodec_parameters_to_context(m_CodecContext.get(), codecParameters) >= 0, "Failed to copy codec parameters to codec context.");
-        O_ASSERT(avcodec_open2(m_CodecContext.get(), codec, nullptr) >= 0, "Failed to open codec through avcodec_open2.");
+        O_ASSERT(avcodec_parameters_to_context(m_CodecContext.get(), codecParameters) >= 0, "Failed to copy codec parameters to codec context");
+        O_ASSERT(avcodec_open2(m_CodecContext.get(), codec, nullptr) >= 0, "Failed to open codec through avcodec_open2");
 
         m_SwrContext = FFmpegUniquePtrManager::UniquePtrSwrContext(swr_alloc(), FFmpegUniquePtrManager::FreeSwrContext);
 
@@ -139,7 +139,7 @@ namespace Orchestra
 
     std::vector<uint8_t> Decoder::DecodeAudioFrame() const
     {
-        O_ASSERT(avcodec_send_packet(m_CodecContext.get(), m_Packet.get()) >= 0, "Failed to send a packet to the decoder.");
+        O_ASSERT(avcodec_send_packet(m_CodecContext.get(), m_Packet.get()) >= 0, "Failed to send a packet to the decoder");
 
         std::vector<uint8_t> out;
         out.reserve(m_MaxBufferSize);
@@ -152,7 +152,7 @@ namespace Orchestra
 
             //if(m_FilterGraph)
             {
-                O_ASSERT(av_buffersrc_add_frame(m_Filters.bufferSource, m_Frame.get()) >= 0, "Failed to apply filter to the frame.");
+                O_ASSERT(av_buffersrc_add_frame(m_Filters.bufferSource, m_Frame.get()) >= 0, "Failed to apply filter to the frame");
 
                 allocatedFrame.reset(av_frame_alloc());
 
@@ -160,7 +160,7 @@ namespace Orchestra
 
                 O_ASSERT(frame != nullptr, "Failed to initialize a frame, during filter process.");
 
-                O_ASSERT(av_buffersink_get_frame(m_Filters.bufferSink, frame) >= 0, "Failed to receive a frame from filter sink.");
+                O_ASSERT(av_buffersink_get_frame(m_Filters.bufferSink, frame) >= 0, "Failed to receive a frame from filter sink");
             }
             //else
                 //frame = m_Frame.get();
@@ -171,7 +171,7 @@ namespace Orchestra
             /*int bufferSize = */av_samples_alloc(&outputBuffer, nullptr, m_CodecContext->ch_layout.nb_channels, outNumberOfSamples, m_OutSampleFormat, 1);
 
             int convertedSamples = 0;
-            O_ASSERT((convertedSamples = swr_convert(m_SwrContext.get(), &outputBuffer, outNumberOfSamples, const_cast<const uint8_t**>(frame->data), frame->nb_samples)) > 0, "Failed to convert samples.");
+            O_ASSERT((convertedSamples = swr_convert(m_SwrContext.get(), &outputBuffer, outNumberOfSamples, const_cast<const uint8_t**>(frame->data), frame->nb_samples)) > 0, "Failed to convert samples");
 
             const size_t convertedSize = static_cast<size_t>(convertedSamples) * m_CodecContext->ch_layout.nb_channels * av_get_bytes_per_sample(m_OutSampleFormat);
 
@@ -187,7 +187,7 @@ namespace Orchestra
 
     void Decoder::SkipToTimestamp(int64_t timestamp) const
     {
-        O_ASSERT(timestamp >= 0 && (timestamp * GetTimestampToSecondsRatio() * AV_TIME_BASE) <= GetTotalDuration(), "The skipping timestamp ", timestamp, " is bigger or lesser than duration.");//TODO
+        O_ASSERT(timestamp >= 0 && (timestamp * GetTimestampToSecondsRatio() * AV_TIME_BASE) <= GetTotalDuration(), "The skipping timestamp ", timestamp, " is bigger or lesser than duration");//TODO
 
         O_ASSERT(avformat_seek_file(m_FormatContext.get(), m_AudioStreamIndex, std::numeric_limits<int>::min(), timestamp, std::numeric_limits<int>::max(), AVSEEK_FLAG_BACKWARD) >= 0, "Failed to skip to timestamp ", timestamp);
 
@@ -217,10 +217,11 @@ namespace Orchestra
         m_Filters.bufferSource = CreateFilterContext("abuffer", nullptr, "in", args);
         m_Filters.bass = CreateFilterContext("bass", m_Filters.bufferSource);
         m_Filters.equalizer = CreateFilterContext("firequalizer", m_Filters.bass);
-        //m_Filters.limiter = CreateFilterContext("alimiter", m_Filters.equalizer, "alimiter", "0.9");
+        //m_Filters.limiter = CreateFilterContext("
+        //alimiter", m_Filters.equalizer, "alimiter", "0.9");
         m_Filters.bufferSink = CreateFilterContext("abuffersink", m_Filters.equalizer, "out");
 
-        O_ASSERT(avfilter_graph_config(m_FilterGraph.get(), nullptr) >= 0, "Failed to configure filter graph.");
+        O_ASSERT(avfilter_graph_config(m_FilterGraph.get(), nullptr) >= 0, "Failed to configure filter graph");
     }
 
     uint32_t Decoder::FindStreamIndex(AVMediaType mediaType) const
@@ -436,13 +437,13 @@ namespace Orchestra
     AVFilterContext* Decoder::CreateFilterContext(const std::string_view& filterNameToFind, AVFilterContext* link, const std::string_view& customName, const std::string_view& args) const
     {
         const AVFilter* filter = avfilter_get_by_name(filterNameToFind.data());
-        O_ASSERT(filter, "Failed to find filter with filterNameToFind ", filterNameToFind);
+        O_ASSERT(filter, "Failed to find filter with ", filterNameToFind);
         AVFilterContext* filterContext = nullptr;
 
-        O_ASSERT(avfilter_graph_create_filter(&filterContext, filter, customName.empty() ? filterNameToFind.data() : customName.data(), args.data(), nullptr, m_FilterGraph.get()) >= 0, "Failed to create filter with filterNameToFind", filterNameToFind);
+        O_ASSERT(avfilter_graph_create_filter(&filterContext, filter, customName.empty() ? filterNameToFind.data() : customName.data(), args.data(), nullptr, m_FilterGraph.get()) >= 0, "Failed to create filter with ", filterNameToFind);
 
         if(link)
-            O_ASSERT(!avfilter_link(link, 0, filterContext, 0), "Failed to link filter with filterNameToFind ", filterNameToFind);
+            O_ASSERT(!avfilter_link(link, 0, filterContext, 0), "Failed to link filter with ", filterNameToFind);
 
         return filterContext;
     }

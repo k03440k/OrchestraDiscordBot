@@ -33,8 +33,6 @@ namespace Orchestra
         
         Type type;
         std::string name;
-        //TODO: something must be done with description field
-        std::string description;
     };
     struct Param
     {
@@ -96,9 +94,9 @@ namespace Orchestra
     struct Command
     {
     public:
-        using CommandCallback = std::function<void(const dpp::message_create_t& message, const std::vector<Param>& paramsProperties, const std::string_view& description)>;
+        using CommandCallback = std::function<void(const dpp::message_create_t& message, const std::vector<Param>& paramsProperties, const std::string_view& value)>;
     public:
-        Command(std::string name, CommandCallback func, std::vector<ParamProperties> paramsProperties = {}, std::string description = "");
+        Command(std::string name, CommandCallback func, std::vector<ParamProperties> paramsProperties = {});
         ~Command() = default;
 
         Command(const Command& other) = default;
@@ -111,7 +109,6 @@ namespace Orchestra
         std::string name;
         CommandCallback func;
         std::vector<ParamProperties> paramsProperties;
-        std::string description;
     };
 
     inline auto GetParam(const std::vector<Param>& params, const std::string_view& name)

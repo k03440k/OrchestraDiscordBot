@@ -41,14 +41,26 @@ namespace Orchestra
 }
 namespace Orchestra
 {
-    Yt_DlpManager::Yt_DlpManager(std::string yt_dlpPath)
-        : m_Yt_dlpPath(std::move(yt_dlpPath)), m_JSONValue(nullptr), m_IsPlaylist(false), m_PlaylistSize(0) {}
+    Yt_DlpManager::Yt_DlpManager(std::filesystem::path yt_dlpExecutablePath)
+        : m_Yt_dlpExecutablePath(std::move(yt_dlpExecutablePath)), m_JSONValue(nullptr), m_IsPlaylist(false), m_PlaylistSize(0) {
+    }
 
-    void Yt_DlpManager::FetchSearch(const std::string_view& input, SearchEngine searchEngine)
+    Yt_DlpManager::Yt_DlpManager(const Yt_DlpManager& other)
+    {
+        CopyFrom(other);
+    }
+    Yt_DlpManager& Yt_DlpManager::operator=(const Yt_DlpManager& other)
+    {
+        CopyFrom(other);
+
+        return *this;
+    }
+
+    void Yt_DlpManager::FetchSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine)
     {
         using namespace GuelderConsoleLog;
 
-        m_JSON = RetrieveJSONFromYt_dlp(m_Yt_dlpPath, input, true, searchEngine);
+        m_JSON = RetrieveJSONFromYt_dlp(yt_dlpExecutablePath, input, true, searchEngine);
 
         O_ASSERT(m_JSON.IsObject(), "m_JSON is not an object.");
 
@@ -70,11 +82,16 @@ namespace Orchestra
         m_IsPlaylist = false;
         m_PlaylistSize = 1;
     }
-    void Yt_DlpManager::FetchURL(const std::string_view& url)
+
+    void Yt_DlpManager::FetchSearch(const std::string_view& input, SearchEngine searchEngine)
+    {
+        FetchSearch(m_Yt_dlpExecutablePath, input, searchEngine);
+    }
+    void Yt_DlpManager::FetchURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url)
     {
         using namespace GuelderConsoleLog;
 
-        m_JSON = RetrieveJSONFromYt_dlp(m_Yt_dlpPath, url, false);
+        m_JSON = RetrieveJSONFromYt_dlp(yt_dlpExecutablePath, url, false);
 
         //playlist
         {
@@ -88,15 +105,21 @@ namespace Orchestra
             else
             {
                 m_PlaylistSize = 1;
-                O_ASSERT(m_JSON.FindMember("formats") != m_JSON.MemberEnd() && m_JSON.FindMember("formats")->value.IsArray() && m_JSON.FindMember("formats")->value.GetArray().Size() != 1, "The url is raw.");
+                O_ASSERT(m_JSON.FindMember("formats") != m_JSON.MemberEnd() && m_JSON.FindMember("formats")->value.IsArray() && m_JSON.FindMember("formats")->value.GetArray().Size() != 1, "The url is raw");
             }
 
             m_JSONValue = &m_JSON;
         }
     }
-    TrackInfo Yt_DlpManager::GetTrackInfo(size_t index, bool lookForRawURL) const
+
+    void Yt_DlpManager::FetchURL(const std::string_view& url)
     {
-        O_ASSERT(IsReady(), "Yt-dlpManager does not have a proper JSON. IsReady() == false.");
+        FetchURL(m_Yt_dlpExecutablePath, url);
+    }
+
+    TrackInfo Yt_DlpManager::GetTrackInfo(const std::filesystem::path& yt_dlpExecutablePath, size_t index, bool lookForRawURL) const
+    {
+        O_ASSERT(IsReady(), "Yt-dlpManager does not have a proper JSON. IsReady() == false");
 
         if(m_IsPlaylist)
         {
@@ -114,7 +137,7 @@ namespace Orchestra
             TrackInfo trackInfo = RetrieveBasicTrackInfo(*itTrack, m_IsPlaylist);
 
             if(lookForRawURL)
-                trackInfo.rawURL = RetrieveFullTrackInfo(RetrieveJSONFromYt_dlp(m_Yt_dlpPath, trackInfo.URL, false), false).rawURL;
+                trackInfo.rawURL = RetrieveFullTrackInfo(RetrieveJSONFromYt_dlp(yt_dlpExecutablePath, trackInfo.URL, false), false).rawURL;
 
             return trackInfo;
         }
@@ -126,17 +149,21 @@ namespace Orchestra
                 return RetrieveBasicTrackInfo(*m_JSONValue, false);
         }
     }
+    TrackInfo Yt_DlpManager::GetTrackInfo(size_t index, bool lookForRawURL) const
+    {
+        return GetTrackInfo(m_Yt_dlpExecutablePath, index, lookForRawURL);
+    }
 
     std::string Yt_DlpManager::GetPlaylistName() const
     {
-        O_ASSERT(m_JSONValue, "The m_JSONValue == nullptr.");
-        O_ASSERT(m_IsPlaylist, "The m_JSONValue is not a playlist.");
+        O_ASSERT(m_JSONValue, "The m_JSONValue == nullptr");
+        O_ASSERT(m_IsPlaylist, "The m_JSONValue is not a playlist");
 
-        O_ASSERT(m_JSONValue->IsObject(), "m_JSONValue->IsObject() == false.");
+        O_ASSERT(m_JSONValue->IsObject(), "m_JSONValue->IsObject() == false");
         const auto itTitle = m_JSONValue->FindMember("title");
 
-        O_ASSERT(itTitle != m_JSONValue->MemberEnd(), "Failed to find title in a playlist.");
-        O_ASSERT(itTitle->value.IsString(), "The title of the playlist is not a string.");
+        O_ASSERT(itTitle != m_JSONValue->MemberEnd(), "Failed to find title in a playlist");
+        O_ASSERT(itTitle->value.IsString(), "The title of the playlist is not a string");
 
         return itTitle->value.GetString();
     }
@@ -150,42 +177,52 @@ namespace Orchestra
         m_JSON.SetObject();
     }
 
-    bool Yt_DlpManager::IsReady() const { return !m_JSON.ObjectEmpty() && m_PlaylistSize > 0; }
+    bool Yt_DlpManager::IsReady() const { return !m_JSON.ObjectEmpty() && m_JSONValue && m_PlaylistSize > 0; }
     bool Yt_DlpManager::IsPlaylist() const noexcept { return m_IsPlaylist; }
     //bool Yt_DlpManager::IsRaw() const noexcept { return m_IsRaw; }
     size_t Yt_DlpManager::GetPlaylistSize() const noexcept { return m_PlaylistSize; }
 
-    const std::string& Yt_DlpManager::GetYt_dlpPath() const { return m_Yt_dlpPath; }
+    const std::filesystem::path& Yt_DlpManager::GetYt_dlpExecutablePath() const { return m_Yt_dlpExecutablePath; }
     const JSON& Yt_DlpManager::GetJSON() const { return m_JSON; }
-    const JSON::ConstArray& Yt_DlpManager::GetPlaylist() const
-    {
-        O_ASSERT(IsReady(), "The ", typeid(Yt_DlpManager).name(), " is not ready.");
-        O_ASSERT(m_IsPlaylist, "The ", typeid(Yt_DlpManager).name(), " is not a playlist.");
 
-        const auto itEntries = m_JSON.FindMember("entries");
+    const rapidjson::GenericArray<false, rapidjson::GenericValue<rapidjson::UTF8<>>>& Yt_DlpManager::GetPlaylist() const
+    {
+        O_ASSERT(IsReady(), "The ", typeid(Yt_DlpManager).name(), " is not ready");
+        O_ASSERT(m_IsPlaylist, "The ", typeid(Yt_DlpManager).name(), " is not a playlist");
+
+        const auto itEntries = m_JSONValue->FindMember("entries");
 
         return itEntries->value.GetArray();
     }
 
-    std::string Yt_DlpManager::GetRawURLFromURL(const std::string_view& url) const
+    std::string Yt_DlpManager::GetRawURLFromURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url)
     {
-        const std::string pipeCommand = GuelderConsoleLog::Logger::Format(m_Yt_dlpPath, " -f bestaudio --get-url \"", url, '\"');
+        const std::string pipeCommand = GuelderConsoleLog::Logger::Format(yt_dlpExecutablePath.string(), " -f bestaudio --get-url \"", url, '\"');
 
         const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand(pipeCommand, 1);
 
-        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp.");
+        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp");
+
+        return output[0];
+    }
+    std::string Yt_DlpManager::GetRawURLFromURL(const std::string_view& url) const
+    {
+        return GetRawURLFromURL(m_Yt_dlpExecutablePath, url);
+    }
+
+    std::string Yt_DlpManager::GetRawURLFromSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine)
+    {
+        const std::string pipeCommand = GuelderConsoleLog::Logger::Format(yt_dlpExecutablePath.string(), " -f bestaudio --get-url \"", SearchEngineToString(searchEngine), "search:", input, "\"");
+
+        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
+
+        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp");
 
         return output[0];
     }
     std::string Yt_DlpManager::GetRawURLFromSearch(const std::string_view& input, SearchEngine searchEngine) const
     {
-        const std::string pipeCommand = GuelderConsoleLog::Logger::Format(m_Yt_dlpPath, " -f bestaudio --get-url \"", SearchEngineToString(searchEngine), "search:", input, "\"");
-
-        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
-
-        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp.");
-
-        return output[0];
+        return GetRawURLFromSearch(m_Yt_dlpExecutablePath, input, searchEngine);
     }
 
     TrackInfo Yt_DlpManager::RetrieveBasicTrackInfo(const JSONValue& JSON, bool isPlaylist)
@@ -233,8 +270,9 @@ namespace Orchestra
 
         O_THROW("Failed to find info about a track in the playlist.");
     }
+
     //calls yt-dlp
-    JSON Yt_DlpManager::RetrieveJSONFromYt_dlp(const std::string_view& yt_dlpPath, const std::string_view& input, bool useSearch, SearchEngine searchEngine)
+    JSON Yt_DlpManager::RetrieveJSONFromYt_dlp(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, bool useSearch, SearchEngine searchEngine)
     {
         using namespace GuelderConsoleLog;
 
@@ -243,9 +281,11 @@ namespace Orchestra
         std::string pipeCommand;
 
         if(useSearch)//this should be changed somehow
-            pipeCommand = Logger::Format(yt_dlpPath, ' ', "--dump-single-json", " \"", SearchEngineToString(searchEngine), "search:", input, "\"");
+            pipeCommand = Logger::Format(yt_dlpExecutablePath.string(), ' ', "--dump-single-json", " \"", SearchEngineToString(searchEngine), "search:", input, "\"");
         else
-            pipeCommand = Logger::Format(yt_dlpPath, ' ', s_Yt_dlpParameters, " \"", input, '\"');
+            pipeCommand = Logger::Format(yt_dlpExecutablePath.string(), ' ', s_Yt_dlpParameters, " \"", input, '\"');
+
+        //GE_LOG(Orchestra, Warning, pipeCommand);
 
         const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
 
@@ -257,5 +297,34 @@ namespace Orchestra
         O_ASSERT(!JSON.HasParseError(), "Failed to parse JSON at offset ", JSON.GetErrorOffset());
 
         return JSON;
+    }
+
+    void Yt_DlpManager::CopyFrom(const Yt_DlpManager& other)
+    {
+        m_Yt_dlpExecutablePath = other.m_Yt_dlpExecutablePath;
+        m_JSON.CopyFrom(other.m_JSON, m_JSON.GetAllocator());
+
+        if(other.IsPlaylist())
+            m_JSONValue = &m_JSON;
+        else
+        {
+            try
+            {
+                auto itEntries = m_JSON.FindMember("entries");
+
+                O_ASSERT(itEntries != m_JSON.MemberEnd(), "Failed to find entries.");
+                O_ASSERT(itEntries->value.IsArray(), "itEntries is not an array.");
+                O_ASSERT(itEntries->value.GetArray().Size() > 0, "The size of itEntries is 0.");
+                O_ASSERT(itEntries->value.GetArray().Begin()->IsObject(), "The first element of itEntries is not an object.");
+
+                m_JSONValue = &*itEntries->value.GetArray().Begin();
+
+            }
+            catch(...)
+            {
+            }
+        }
+        m_IsPlaylist = other.m_IsPlaylist;
+        m_PlaylistSize = other.m_PlaylistSize;
     }
 }

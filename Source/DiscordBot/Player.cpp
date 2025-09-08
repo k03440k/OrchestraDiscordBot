@@ -120,7 +120,7 @@ namespace Orchestra
 
         float currentSentDuration = 0.f;
 
-        bool skipping = false;
+        //bool skipping = false;
 
         constexpr int initialSampleRate = Decoder::DEFAULT_SAMPLE_RATE;
         m_PreviousSampleRate = initialSampleRate;
@@ -277,13 +277,11 @@ namespace Orchestra
         return m_Decoder.IsReady();
     }
 
-    void Player::SetBassBoost(float decibelsBoost, float frequencyToAdjust, float bandwidth)
+    void Player::SetBassBoost(BassBoostSettings bassBoostSettings)
     {
         std::lock_guard bassBoostSettingsLock{ m_DecodingMutex };
 
-        m_BassBoostSettings.decibelsBoost = decibelsBoost;
-        m_BassBoostSettings.frequency = frequencyToAdjust;
-        m_BassBoostSettings.bandwidth = bandwidth;
+        m_BassBoostSettings = std::move(bassBoostSettings);
 
         if(m_Decoder.IsReady())
         {
@@ -295,11 +293,15 @@ namespace Orchestra
             m_ShouldReturnToCurrentTimestamp = true;
             m_IsSkippingFrames = true;
 
-            m_Decoder.SetBassBoost(decibelsBoost, frequencyToAdjust, bandwidth);
+            m_Decoder.SetBassBoost(m_BassBoostSettings.decibelsBoost, m_BassBoostSettings.frequency, m_BassBoostSettings.bandwidth);
 
             if(!wasPaused)
                 Pause(false);
         }
+    }
+    void Player::SetBassBoost(float decibelsBoost, float frequencyToAdjust, float bandwidth)
+    {
+        SetBassBoost(BassBoostSettings{decibelsBoost, frequencyToAdjust, bandwidth});
     }
 
     void Player::InsertOrAssignEqualizerFrequency(float frequency, float decibelsBoost)
