@@ -34,6 +34,22 @@ void BotLogger(const dpp::log_t& log)
     }
 }
 
+std::function<void()> g_OnApplicationClose;
+
+#ifdef WIN32
+BOOL ConsoleHandler(DWORD ctrlType)
+{
+    switch (ctrlType)
+    {
+    case CTRL_CLOSE_EVENT:
+        g_OnApplicationClose();
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+#endif
+
 int main(int argc, char** argv)
 {
     try
@@ -60,8 +76,7 @@ int main(int argc, char** argv)
 
             if(!value.empty())
                 historyLogPath = path / resourcesPath / value;
-        }
-        catch(...) {}
+        } catch(...) {}
 
         auto botToken = mainConfig.GetVariable("botToken").GetValue<std::string>();
 
@@ -71,17 +86,16 @@ int main(int argc, char** argv)
         std::string commandsPrefix;
         char paramsPrefix = '-';
         uint32_t maxDownloadFileSize = 0;
+        bool instantlyCloseConsole = false;
 
         try
         {
             sentPacketsSize = mainConfig.GetVariable("sentPacketsSize").GetValue<unsigned int>();
-        }
-        catch(...) {}
+        } catch(...) {}
         try
         {
             enableLogSentPackets = mainConfig.GetVariable("enableLoggingSentPackets").GetValue<bool>();
-        }
-        catch(...) {}
+        } catch(...) {}
         try
         {
             commandsPrefix = mainConfig.GetVariable("commandsPrefix").GetValue<std::string>();
@@ -90,8 +104,7 @@ int main(int argc, char** argv)
         try
         {
             paramsPrefix = mainConfig.GetVariable("paramsPrefix").GetRawValue()[0];
-        }
-        catch(...) {}
+        } catch(...) {}
 
         try
         {
@@ -109,6 +122,10 @@ int main(int argc, char** argv)
         {
             maxDownloadFileSize = std::numeric_limits<uint32_t>::max();
         }
+        try
+        {
+            instantlyCloseConsole = mainConfig.GetVariable("instantlyCloseConsole").GetValue<bool>();
+        } catch(...) {}
 
         OrchestraDiscordBot bot
         {
@@ -140,9 +157,17 @@ int main(int argc, char** argv)
 
         bot.SetLogger(BotLogger);
 
+#ifdef WIN32
+        g_OnApplicationClose = [&bot, instantlyCloseConsole] { bot.Shutdown(!instantlyCloseConsole); };
+
+        SetConsoleCtrlHandler(ConsoleHandler, TRUE);
+#endif
+
         bot.RegisterCommands();
 
         bot.Run();
+
+        LogWarning("The bot has just been shutdown. Probably the terminate command was used.");
     }
     catch(const OrchestraException& oe)
     {

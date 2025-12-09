@@ -8,6 +8,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 
+#include "GuelderResourcesManager.hpp"
 #include "../Utils.hpp"
 
 namespace Orchestra
@@ -93,6 +94,13 @@ namespace Orchestra
     public:
         static std::string GetRawURLFromURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url);
         std::string GetRawURLFromURL(const std::string_view& url) const;
+
+#ifdef WIN32
+        static GuelderResourcesManager::ResourcesManager::ProcessReadInfo StartGetRawURLFromURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url);
+        GuelderResourcesManager::ResourcesManager::ProcessReadInfo StartGetRawURLFromURL(const std::string_view& url) const;
+        static std::expected<std::vector<std::string>, int> FinishGetRawURLFromURL(const GuelderResourcesManager::ResourcesManager::ProcessReadInfo& processReadInfo);
+#endif
+
         static std::string GetRawURLFromSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine);
         std::string GetRawURLFromSearch(const std::string_view& input, SearchEngine searchEngine) const;
 

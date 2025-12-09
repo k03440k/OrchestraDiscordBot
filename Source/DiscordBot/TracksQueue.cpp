@@ -17,7 +17,7 @@ namespace Orchestra
     TracksQueue::TracksQueue(std::filesystem::path yt_dlpExecutablePath)
         : m_Yt_DlpManager(std::move(yt_dlpExecutablePath)) {}
 
-    void TracksQueue::FetchURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url, std::mt19937 randomEngine, bool doShuffle, float speed, size_t repeat, size_t insertIndex)
+    void TracksQueue::FetchURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url, std::mt19937 randomEngine, bool doShuffle, float speed, size_t repeat, size_t insertIndex, bool lookForRawURLOfOneTrack)
     {
         m_Yt_DlpManager.FetchURL(yt_dlpExecutablePath, url);
 
@@ -86,29 +86,29 @@ namespace Orchestra
         }
         else
         {
-            InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, 0, true), speed, repeat);
+            InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, 0, lookForRawURLOfOneTrack), speed, repeat);
 
             AdjustPlaylistInfosIndicesAfterInsertion(insertIndex, 1);
         }
     }
-    void TracksQueue::FetchURL(const std::string_view& url, std::mt19937 randomEngine, bool doShuffle, float speed, size_t repeat, size_t insertIndex)
+    void TracksQueue::FetchURL(const std::string_view& url, std::mt19937 randomEngine, bool doShuffle, float speed, size_t repeat, size_t insertIndex, bool lookForRawURL)
     {
-        FetchURL(m_Yt_DlpManager.GetYt_dlpExecutablePath(), url, randomEngine, doShuffle, speed, repeat, insertIndex);
+        FetchURL(m_Yt_DlpManager.GetYt_dlpExecutablePath(), url, randomEngine, doShuffle, speed, repeat, insertIndex, lookForRawURL);
     }
 
-    void TracksQueue::FetchSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex)
+    void TracksQueue::FetchSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex, bool lookForRawURL)
     {
         AdjustInsertIndex(insertIndex);
 
         m_Yt_DlpManager.FetchSearch(yt_dlpExecutablePath, input, searchEngine);
 
-        InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, 0, true), speed, repeat);
+        InsertTrackInfo(insertIndex, m_Yt_DlpManager.GetTrackInfo(yt_dlpExecutablePath, 0, lookForRawURL), speed, repeat);
 
         AdjustPlaylistInfosIndicesAfterInsertion(insertIndex, 1);
     }
-    void TracksQueue::FetchSearch(const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex)
+    void TracksQueue::FetchSearch(const std::string_view& input, SearchEngine searchEngine, float speed, size_t repeat, size_t insertIndex, bool lookForRawURL)
     {
-        FetchSearch(m_Yt_DlpManager.GetYt_dlpExecutablePath(), input, searchEngine, speed, repeat, insertIndex);
+        FetchSearch(m_Yt_DlpManager.GetYt_dlpExecutablePath(), input, searchEngine, speed, repeat, insertIndex, lookForRawURL);
     }
 
     //fills rawURL, NOT URL
@@ -291,6 +291,7 @@ namespace Orchestra
     void TracksQueue::SetTrackDuration(size_t index, float duration) { m_Tracks[index].duration = duration; }
     void TracksQueue::SetTrackSpeed(size_t index, float speed) { m_Tracks[index].speed = speed; }
     void TracksQueue::SetTrackRepeatCount(size_t index, size_t repeatCount) { m_Tracks[index].repeat = repeatCount; }
+    void TracksQueue::SetTrackRawURL(size_t index, std::string rawURL) { m_Tracks[index].rawURL = std::move(rawURL); }
 
     void TracksQueue::SetPlaylistTitle(size_t index, std::string title) { m_PlaylistInfos[index].title = std::move(title); }
     void TracksQueue::SetPlaylistRepeatCount(size_t index, size_t repeatCount) { m_PlaylistInfos[index].repeat = repeatCount; }

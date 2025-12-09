@@ -9,7 +9,7 @@
 namespace Orchestra
 {
     OrchestraDiscordBotPlayer::OrchestraDiscordBotPlayer(uint32_t sentPacketsSize, bool enableLogSentPackets)
-        : player(sentPacketsSize, enableLogSentPackets), currentPlaylistIndex(std::numeric_limits<uint32_t>::max()), m_TracksQueue() {}
+        : player(sentPacketsSize, enableLogSentPackets), currentPlaylistIndex(std::numeric_limits<uint32_t>::max()) {}
 
     OrchestraDiscordBotPlayer::OrchestraDiscordBotPlayer(const OrchestraDiscordBotPlayer& other)
     {
@@ -38,6 +38,7 @@ namespace Orchestra
         m_TracksQueue = other.m_TracksQueue;
         currentTrackIndex = other.currentTrackIndex.load();
         currentPlaylistIndex = other.currentPlaylistIndex.load();
+        hasRawURLRetrievingCompleted = other.hasRawURLRetrievingCompleted.load();
     }
     void OrchestraDiscordBotPlayer::MoveFrom(OrchestraDiscordBotPlayer&& other) noexcept
     {
@@ -46,6 +47,7 @@ namespace Orchestra
         m_TracksQueue = std::move(other.m_TracksQueue);
         currentTrackIndex = other.currentTrackIndex.load();
         currentPlaylistIndex = other.currentPlaylistIndex.load();
+        hasRawURLRetrievingCompleted = other.hasRawURLRetrievingCompleted.load();
     }
 }
 //BotInstance

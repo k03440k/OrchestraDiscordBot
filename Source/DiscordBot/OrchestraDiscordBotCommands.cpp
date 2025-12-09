@@ -27,7 +27,7 @@ namespace Orchestra
         char paramsPrefix;
 
         {
-            auto properties = botInstance.AccessOrchestraDiscordBotInstanceProperties();
+            auto properties = botInstance.AccessBinarySemaphoreOrchestraDiscordBotInstanceProperties();
 
             commandsPrefix = properties->commandsPrefix;
             paramsPrefix = properties->paramsPrefix;
@@ -146,7 +146,7 @@ namespace Orchestra
         constexpr std::string_view commandName = "current";
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         if(!tracksQueue->GetTracksSize())
         {
@@ -162,11 +162,11 @@ namespace Orchestra
     void OrchestraDiscordBot::CommandQueue(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
         constexpr std::string_view commandName = "queue";
-        
+
         dpp::voiceconn* voice = IsVoiceConnectionReady(message.msg.guild_id);
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The queue is empty!");
 
@@ -242,7 +242,7 @@ namespace Orchestra
                     fieldValue += Logger::Format("Duration: ", duration, "s.\n");
 
                 if(speed != 1.f)
-                    fieldValue += Logger::Format("Speed: ", speed, ".\nDuration with speed applied: ", static_cast<float>(duration) * speed, "s.\n");
+                    fieldValue += Logger::Format("Speed: ", speed, ".\nDuration with speed applied: ", static_cast<float>(duration) / speed, "s.\n");
                 if(repeat > 1)
                     fieldValue += Logger::Format("Repeat count: ", repeat, ".\n");
                 if(showURLs)
@@ -278,6 +278,7 @@ namespace Orchestra
 
         SendEmbedsSequentially(message, embeds);
     }
+
     void OrchestraDiscordBot::CommandPlay(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
         constexpr std::string_view commandName = "play";
@@ -293,13 +294,13 @@ namespace Orchestra
 
         botPlayer.isStopped = false;
 
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         const size_t tracksNumberBefore = tracksQueue->GetTracksSize();
 
-        tracksQueue.Unlock();
+        AddToQueue(*tracksQueue, commandName, message, params, value.data());
 
-        AddToQueue(commandName, message, params, value.data());
+        //tracksQueue.Unlock();
 
         if(tracksNumberBefore)
             return;
@@ -335,7 +336,7 @@ namespace Orchestra
             bool isInPlaylist = false;
             const PlaylistInfo* currentPlaylistInfo = nullptr;
             size_t prevPlaylistIndex = std::numeric_limits<size_t>::max();
-            size_t prevTrackIndex;
+            size_t prevUniqueTrackIndex;
             size_t playlistRepeat = 0;
 
             struct
@@ -351,6 +352,12 @@ namespace Orchestra
 
             botPlayer.player.SetBassBoost(bassBoostSettings.decibelsBoost, bassBoostSettings.frequencyToAdjust, bassBoostSettings.bandwidth);
 
+            //decltype(botPlayer.AccessBinarySemaphoreTracksQueue()) tracksQueue1{};
+
+            //tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
+
+            botPlayer.hasRawURLRetrievingCompleted = false;
+
             for(size_t i = 0, playlistRepeated = 0, trackRepeated = 0; true; ++i)
             {
                 const TrackInfo* currentTrackInfo = nullptr;
@@ -358,24 +365,70 @@ namespace Orchestra
                 bool caughtException = false;
                 try
                 {
-                    std::lock_guard playLock{ botPlayer.playMutex };
+                    bool decodeCurrentTrack = true;
+
+                    if(botPlayer.currentTrackIndex >= tracksQueue->GetTracksSize())
+                        break;
+
+                    size_t indexToSetRawURL = botPlayer.currentTrackIndex;
+                    currentTrackInfo = &tracksQueue->GetTrackInfos()[botPlayer.currentTrackIndex];
+
+                    prevUniqueTrackIndex = currentTrackInfo->uniqueIndex;
+
+                    //this if is the shittiest in the entire solution
+                    if(currentTrackInfo->rawURL.empty())
                     {
-                        auto tracksQueue1 = botPlayer.AccessTracksQueue();
-                        //tracksQueue = {botPlayer.playMutex, nullptr};
+                        bool receivedRawURL = false;
 
-                        if(botPlayer.currentTrackIndex >= tracksQueue1->GetTracksSize())
-                            break;
+                        auto processReadInfo = Yt_DlpManager::StartGetRawURLFromURL(m_Paths.yt_dlpExecutablePath, currentTrackInfo->URL);
 
-                        currentTrackInfo = &tracksQueue1->GetTrackInfos()[botPlayer.currentTrackIndex];
+                        bool rethrow = false;
 
-                        prevTrackIndex = currentTrackInfo->uniqueIndex;
+                        std::jthread gettingRawURLThread{ [&]
+                        {
+                            //a long one
+                            auto result = Yt_DlpManager::FinishGetRawURLFromURL(processReadInfo);
 
-                        if(currentTrackInfo->rawURL.empty())
-                            currentTrackInfo = &tracksQueue1->GetRawTrackURL(m_Paths.yt_dlpExecutablePath, botPlayer.currentTrackIndex);
+                            if(result.has_value())
+                            {
+                                tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
-                        GE_LOG(Orchestra, Info, "Received raw URL to a track: ", currentTrackInfo->rawURL);
+                                auto found = std::ranges::find_if(tracksQueue->GetTrackInfos(), [&prevUniqueTrackIndex](const TrackInfo& info) { return info.uniqueIndex == prevUniqueTrackIndex; });
+                                O_ASSERT(found != tracksQueue->GetTrackInfos().end(), "Failed to find a track with unique index ", prevUniqueTrackIndex, ", which would have received a raw url.");
 
-                        botPlayer.player.SetDecoder(currentTrackInfo->rawURL, Decoder::DEFAULT_SAMPLE_RATE * currentTrackInfo->speed);
+                                tracksQueue->SetTrackRawURL(found - tracksQueue->GetTrackInfos().begin(),std::move(result.value()[0]));
+
+                                GE_LOG(Orchestra, Warning, tracksQueue->GetTrackInfo(found - tracksQueue->GetTrackInfos().begin()).rawURL);
+
+                                receivedRawURL = true;
+
+                                //tracksQueue.Unlock();
+
+                                botPlayer.gettingRawURLCondition.notify_all();
+                            }
+                        } };
+
+                        tracksQueue.Unlock();
+                        std::unique_lock lock{ botPlayer.gettingRawURLMutex };
+                        botPlayer.gettingRawURLCondition.wait(lock);
+
+                        //if(!*tracksQueue)
+                            tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
+
+                        if(rethrow)
+                            O_THROW("Failed to get raw track URL.");
+
+                        if(!receivedRawURL)
+                        {
+                            GE_LOG(Orchestra, Warning, "TERMINATING");
+                            processReadInfo.processInfo.TerminateProcess();
+                            decodeCurrentTrack = false;
+                        }
+                    }
+
+                    if(decodeCurrentTrack)
+                    {
+                        botPlayer.player.SetDecoder(currentTrackInfo->rawURL, Decoder::DEFAULT_SAMPLE_RATE / currentTrackInfo->speed);
 
                         //printing info about the track
                         if(!noInfo)
@@ -390,7 +443,7 @@ namespace Orchestra
                                     title = (titleTmp);
 
                                 if(!title.empty())
-                                    tracksQueue1->SetTrackTitle(botPlayer.currentTrackIndex, title);
+                                    tracksQueue->SetTrackTitle(indexToSetRawURL, title);
                             }
                             if(currentTrackInfo->duration == 0.f)
                             {
@@ -398,7 +451,7 @@ namespace Orchestra
                                 float duration;
                                 duration = botPlayer.player.GetTotalDuration();
                                 if(duration != 0.f)
-                                    tracksQueue1->SetTrackDuration(0, duration);
+                                    tracksQueue->SetTrackDuration(0, duration);
                             }
 
                             TrackInfo tmp = *currentTrackInfo;
@@ -406,9 +459,15 @@ namespace Orchestra
 
                             ReplyWithInfoAboutTrack(message.msg.guild_id, message, tmp);
                         }
-                    }
 
-                    botPlayer.player.DecodeAndSendAudio(voice);
+                        tracksQueue.Unlock();
+
+                        //GE_LOG(Orchestra, Error, "\tPLAY DECODING", indexToSetRawURL);
+
+                        botPlayer.player.DecodeAndSendAudio(voice);
+                    }
+                    //else
+                        //tracksQueue.Unlock();
                 }
                 catch(const OrchestraException& e)
                 {
@@ -424,28 +483,31 @@ namespace Orchestra
                 }
 
                 //indices shit. I strongly hope that it is the last version of this shit, cuz I'm tired by this stuff
-                auto tracksQueue2 = botPlayer.AccessTracksQueue();
+                //auto tracksQueue2 = botPlayer.AccessBinarySemaphoreTracksQueue();
 
                 if(caughtException)
                 {
                     //haven't tested this
-                    tracksQueue2->DeleteTrack(botPlayer.currentTrackIndex);
+                    tracksQueue->DeleteTrack(botPlayer.currentTrackIndex);
                     continue;
                 }
 
-                if(botPlayer.currentTrackIndex >= tracksQueue2->GetTracksSize())
+                if(!*tracksQueue)
+                    tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
+
+                if(botPlayer.currentTrackIndex >= tracksQueue->GetTracksSize())
                     break;
 
-                currentTrackInfo = &tracksQueue2->GetTrackInfos()[botPlayer.currentTrackIndex];
+                currentTrackInfo = &tracksQueue->GetTrackInfos()[botPlayer.currentTrackIndex];
 
-                const bool wasTrackSkipped = prevTrackIndex != currentTrackInfo->uniqueIndex;
+                const bool wasTrackSkipped = prevUniqueTrackIndex != currentTrackInfo->uniqueIndex;
                 bool incrementCurrentIndex = !wasTrackSkipped;
 
                 if(!wasTrackSkipped)
                     trackRepeated++;
 
                 bool found = false;
-                for(size_t j = 0; j < tracksQueue2->GetPlaylistsSize(); j++)
+                for(size_t j = 0; j < tracksQueue->GetPlaylistsSize(); j++)
                 {
                     const PlaylistInfo& playlistInfo = tracksQueue->GetPlaylistInfos()[j];
 
@@ -514,13 +576,11 @@ namespace Orchestra
                 }
             }
 
-            {
-                auto tracksQueue1 = botPlayer.AccessTracksQueue();
-
-                tracksQueue1->Clear();
-            }
+            tracksQueue->Clear();
 
             botPlayer.currentTrackIndex = 0;
+
+            tracksQueue.Unlock();
 
             auto prevBass = botPlayer.player.GetBassBoostSettings();
 
@@ -529,6 +589,8 @@ namespace Orchestra
             //I know that std::move has no effect here, I just do it
             botPlayer.player.SetBassBoost(std::move(prevBass));
         }
+
+        botPlayer.hasRawURLRetrievingCompleted = true;
     }
 
     void OrchestraDiscordBot::CommandPlaylist(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
@@ -536,7 +598,7 @@ namespace Orchestra
         constexpr std::string_view commandName = "playlist";
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         int deleteIndex = -1;
         GetParamValue(params, GetParamName(commandName, "delete"), deleteIndex);
@@ -592,7 +654,7 @@ namespace Orchestra
         IsVoiceConnectionReady(message.msg.guild_id);
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The tracks queue size is 0.");
         O_ASSERT(!value.empty(), "No speed value provided.");
@@ -622,7 +684,7 @@ namespace Orchestra
                 int playlistIndex = GetParamValue<int>(params, playlistParamIndex);
 
                 if(playlistIndex == -1)
-                    playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id);
+                    playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id, *tracksQueue);
 
                 O_ASSERT(playlistIndex >= 0 && playlistIndex < tracksQueue->GetPlaylistsSize(), "Playlist index is invalid");
 
@@ -638,7 +700,9 @@ namespace Orchestra
             if(from <= botPlayer.currentTrackIndex && to >= botPlayer.currentTrackIndex)
             {
                 O_ASSERT(botPlayer.player.IsDecoderReady(), "The Decoder is not ready.");
-                botPlayer.player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed);
+
+                if(tracksQueue->GetTrackInfo(botPlayer.currentTrackIndex).speed != speed)
+                    botPlayer.player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE / speed);
             }
 
             for(int i = from; i <= to; i++)
@@ -670,7 +734,9 @@ namespace Orchestra
             if(index == botPlayer.currentTrackIndex)
             {
                 O_ASSERT(botPlayer.player.IsDecoderReady(), "The Decoder is not ready.");
-                botPlayer.player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE * speed);
+
+                if(tracksQueue->GetTrackInfo(botPlayer.currentTrackIndex).speed != speed)
+                    botPlayer.player.SetAudioSampleRate(Decoder::DEFAULT_SAMPLE_RATE / speed);
             }
 
             tracksQueue->SetTrackSpeed(index, speed);
@@ -790,7 +856,7 @@ namespace Orchestra
         using namespace GuelderResourcesManager;
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         //IsVoiceConnectionReady(message.msg.guild_id);
 
@@ -826,7 +892,7 @@ namespace Orchestra
                 playlistIndex = GetParamValue<int>(params, playlistParamIndex);
 
                 if(playlistIndex == -1)
-                    playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id);
+                    playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id, *tracksQueue);
 
                 O_ASSERT(playlistIndex >= 0 && playlistIndex < tracksQueue->GetPlaylistsSize(), "Playlist index is invalid");
             }
@@ -876,7 +942,7 @@ namespace Orchestra
         //IsVoiceConnectionReady(message.msg.guild_id);
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The queue is empty!");
 
@@ -893,7 +959,7 @@ namespace Orchestra
                 after++;
         }
 
-        AddToQueue(commandName, message, params, value.data(), after);
+        AddToQueue(*tracksQueue, commandName, message, params, value.data(), after);
     }
 
     void OrchestraDiscordBot::CommandTransfer(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
@@ -901,7 +967,7 @@ namespace Orchestra
         constexpr std::string_view commandName = "transfer";
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The tracks queue is empty.");
 
@@ -942,7 +1008,7 @@ namespace Orchestra
         IsVoiceConnectionReady(message.msg.guild_id);
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The tracks queue size is 0.");
 
@@ -967,7 +1033,7 @@ namespace Orchestra
                 int playlistIndex = GetParamValue<int>(params, playlistParamIndex);
 
                 if(playlistIndex == -1)
-                    playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id);
+                    playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id, *tracksQueue);
 
                 O_ASSERT(playlistIndex >= 0 && playlistIndex < tracksQueue->GetPlaylistsSize(), "Playlist index is invalid");
 
@@ -980,7 +1046,10 @@ namespace Orchestra
 
         //fix this
         if(from <= botPlayer.currentTrackIndex || to == botPlayer.currentTrackIndex)
+        {
             botPlayer.currentTrackIndex = to - (botPlayer.currentTrackIndex - from);
+            //botPlayer.gettingRawURLCondition.notify_all();
+        }
 
         tracksQueue->Reverse(from, to);
     }
@@ -992,12 +1061,14 @@ namespace Orchestra
         //IsVoiceConnectionReady(message.msg.guild_id);
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The queue is empty.");
 
         int playlistIndex = -1;
-        GetParamValue(params, GetParamName(commandName, "playlist"), playlistIndex);
+        int playlistParamIndex = GetParamIndex(params, GetParamName(commandName, "playlist"));
+        if(playlistParamIndex >= 0)
+            playlistIndex = GetParamValue<int>(params, playlistParamIndex);
 
         int from = 0;
         int to = tracksQueue->GetTracksSize() - 1;
@@ -1005,8 +1076,11 @@ namespace Orchestra
         const int fromParamIndex = GetParamIndex(params, GetParamName(commandName, "from"));
         const int toParamIndex = GetParamIndex(params, GetParamName(commandName, "to"));
 
-        if(playlistIndex >= 0)
+        if(playlistParamIndex >= 0)
         {
+            if(playlistIndex == -1)
+                playlistIndex = GetCurrentPlaylistIndex(message.msg.guild_id, *tracksQueue);
+
             O_ASSERT(playlistIndex < tracksQueue->GetPlaylistsSize(), "Invalid playlist index.");
 
             from = tracksQueue->GetPlaylistInfo(playlistIndex).beginIndex;
@@ -1022,20 +1096,26 @@ namespace Orchestra
 
         const bool isCurrentTrackInScope = botPlayer.currentTrackIndex >= from && botPlayer.currentTrackIndex <= to;
 
-        if(fromParamIndex == -1 && toParamIndex == -1)
+        if(fromParamIndex == -1 && toParamIndex == -1 && playlistParamIndex == -1)
             tracksQueue->ClearPlaylists();
 
         tracksQueue->Shuffle(m_RandomEngine, from, to + 1, (isCurrentTrackInScope ? botPlayer.currentTrackIndex.load() : std::numeric_limits<size_t>::max()));
 
         if(isCurrentTrackInScope)
+        {
             botPlayer.currentTrackIndex = from;
+            //there must not be such stuff as the track's index remains the same as we set it first
+            //botPlayer.gettingRawURLCondition.notify_all();
+        }
+
+        GE_LOG(Orchestra, Error, "\tSHUFFLE ", botPlayer.currentTrackIndex);
     }
     void OrchestraDiscordBot::CommandDelete(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value)
     {
         constexpr std::string_view commandName = "delete";
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         O_ASSERT(tracksQueue->GetTracksSize() > 0, "The queue is empty.");
 
@@ -1070,18 +1150,22 @@ namespace Orchestra
         {
             O_ASSERT(index < tracksQueue->GetTracksSize(), "The index is bigger than the last item of queue with index ", tracksQueue->GetTracksSize() - 1);
 
-            if(botPlayer.currentTrackIndex == index)
+            if(index == botPlayer.currentTrackIndex)
             {
                 voice->voiceclient->stop_audio();
                 botPlayer.player.Skip();
+                botPlayer.gettingRawURLCondition.notify_all();
             }
 
             //why it was here before?
             //if(m_CurrentTrackIndex > 0)
                 //--m_CurrentTrackIndex;
 
-            if(index < botPlayer.currentTrackIndex)
+            else if(index < botPlayer.currentTrackIndex)
+            {
                 --botPlayer.currentTrackIndex;
+                //botPlayer.gettingRawURLCondition.notify_all();
+            }
 
             tracksQueue->DeleteTrack(index);
         }
@@ -1106,7 +1190,7 @@ namespace Orchestra
                 }
                 catch(...)
                 {
-                    playlistIndexToDelete = GetCurrentPlaylistIndex(message.msg.guild_id);
+                    playlistIndexToDelete = GetCurrentPlaylistIndex(message.msg.guild_id, *tracksQueue);
                 }
 
                 //if(playlistIndexToDelete == -1)
@@ -1131,9 +1215,13 @@ namespace Orchestra
                 botPlayer.player.Skip();
 
                 botPlayer.currentTrackIndex = from;
+                botPlayer.gettingRawURLCondition.notify_all();
             }
             else if(to < botPlayer.currentTrackIndex)
+            {
                 botPlayer.currentTrackIndex -= to - from + 1;
+                //botPlayer.gettingRawURLCondition.notify_all();
+            }
 
             tracksQueue->DeleteTracks(from, to);
         }
@@ -1145,7 +1233,7 @@ namespace Orchestra
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
         //we need this one to block the mutex so that it will get a correct index
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         const dpp::voiceconn* v = IsVoiceConnectionReady(message.msg.guild_id);
 
@@ -1153,6 +1241,7 @@ namespace Orchestra
         botPlayer.isStopped = true;
 
         botPlayer.currentTrackIndex = std::numeric_limits<uint32_t>::max();
+        botPlayer.gettingRawURLCondition.notify_all();
 
         v->voiceclient->pause_audio(botPlayer.player.GetIsPaused());
         v->voiceclient->stop_audio();
@@ -1175,7 +1264,7 @@ namespace Orchestra
         constexpr std::string_view commandName = "skip";
 
         BotPlayer& botPlayer = GetBotPlayer(message.msg.guild_id);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
+        auto tracksQueue = botPlayer.AccessBinarySemaphoreTracksQueue();
 
         const dpp::voiceconn* v = IsVoiceConnectionReady(message.msg.guild_id);
 
@@ -1215,7 +1304,7 @@ namespace Orchestra
         if(!skipPlaylist && toindex < 0 && inindex == 0 && !skipToMiddle && !skipToLast && tosecsIndex == -1)
             GetParamValue(params, GetParamName(commandName, "secs"), secs);
 
-        bool skip = botPlayer.player.IsDecoderReady() > 0;
+        bool skip = botPlayer.player.IsDecoderReady();
         int skipToIndex = botPlayer.currentTrackIndex;
 
         if(skipPlaylist)
@@ -1268,8 +1357,11 @@ namespace Orchestra
         else
             skipToIndex++;
 
-        botPlayer.currentTrackIndex = skipToIndex;
-
+        if(skipToIndex != botPlayer.currentTrackIndex)
+        {
+            botPlayer.currentTrackIndex = skipToIndex;
+            botPlayer.gettingRawURLCondition.notify_all();
+        }
         if(skip)
         {
             botPlayer.player.Skip();
@@ -1299,18 +1391,9 @@ namespace Orchestra
 
         if(m_BossSnowflake != 0 && message.msg.author.id == m_BossSnowflake)
         {
-            //disconnect
-            dpp::voiceconn* voice = this->get_shard(0)->get_voice(message.msg.guild_id);
-
-            if(voice && voice->voiceclient && voice->is_ready())
-                this->get_shard(0)->disconnect_voice(message.msg.guild_id);
-
             Reply(message, "Goodbye!");
 
-            std::unique_lock lock{ botInstance.joinMutex };
-            botInstance.joinedCondition.wait_for(lock, std::chrono::milliseconds(500), [this, &botInstance] { return botInstance.isJoined == false; });
-
-            exit(0);
+            Shutdown();
         }
         else
             Reply(message, "You are not The Boss!");

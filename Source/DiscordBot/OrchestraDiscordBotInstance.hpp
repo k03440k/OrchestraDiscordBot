@@ -3,6 +3,8 @@
 #include <mutex>
 #include <atomic>
 
+#include <semaphore>
+
 #include <dpp/dpp.h>
 
 #include "../Utils.hpp"
@@ -29,15 +31,15 @@ namespace Orchestra
 namespace Orchestra
 {
     class OrchestraDiscordBotPlayer;
-    
-    O_DEFINE_STRUCT_GUARD_STD_MUTEX(OrchestraDiscordBotPlayer);
-    O_DEFINE_STRUCT_GUARD_STD_MUTEX(TracksQueue);
-    O_DEFINE_STRUCT_GUARD_STD_MUTEX(OrchestraDiscordBotInstanceProperties);
+
+    O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE(OrchestraDiscordBotPlayer);
+    O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE(OrchestraDiscordBotInstanceProperties);
+    O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE(TracksQueue);
 
     class OrchestraDiscordBotPlayer
     {
     public:
-        O_DEFINE_STRUCT_GUARD_GETTER(TracksQueue, &m_TracksQueue, m_TracksQueueMutex);
+        O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE_GETTER(TracksQueue, &m_TracksQueue, &m_TracksQueueBinarySemaphore)
     public:
         OrchestraDiscordBotPlayer(uint32_t sentPacketsSize = 0, bool enableLogSentPackets = false);
 
@@ -47,15 +49,18 @@ namespace Orchestra
         OrchestraDiscordBotPlayer& operator=(OrchestraDiscordBotPlayer&& other) noexcept;
 
         Player player;
+        std::atomic_bool hasRawURLRetrievingCompleted;
 
         std::atomic_bool isStopped;
-        std::mutex playMutex;
+        std::mutex gettingRawURLMutex;
+        //so this one should be notified only when a. track raw url has been retrieved; b. when we must skip current track. e.g if we are waiting for a raw url to arrive and we skip, delete current track so it is not needed currently
+        std::condition_variable gettingRawURLCondition;
 
         std::atomic_uint32_t currentTrackIndex;
         std::atomic_uint32_t currentPlaylistIndex;
     private:
         TracksQueue m_TracksQueue;
-        std::mutex m_TracksQueueMutex;
+        std::binary_semaphore m_TracksQueueBinarySemaphore{1};
 
     private:
         void CopyFrom(const OrchestraDiscordBotPlayer& other);
@@ -64,7 +69,7 @@ namespace Orchestra
     class OrchestraDiscordBotInstance
     {
     public:
-        O_DEFINE_STRUCT_GUARD_GETTER(OrchestraDiscordBotInstanceProperties, &m_Properties, m_Mutex)
+        O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE_GETTER(OrchestraDiscordBotInstanceProperties, &m_Properties, &m_BinarySemaphore)
     public:
         OrchestraDiscordBotInstance(FullOrchestraDiscordBotInstanceProperties properties = {});
 
@@ -80,7 +85,7 @@ namespace Orchestra
         OrchestraDiscordBotPlayer player;
 
     private:
-        std::mutex m_Mutex;
+        std::binary_semaphore m_BinarySemaphore{1};
 
         OrchestraDiscordBotInstanceProperties m_Properties;
 

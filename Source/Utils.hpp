@@ -14,26 +14,51 @@
 #define O_THROW(...) GE_CTHROW(O_EXCEPTION(::GuelderConsoleLog::Logger::Format(__VA_ARGS__), GE_MAKE_FULL_ERROR_STRING(::GuelderConsoleLog::Logger::Format(__VA_ARGS__))))
 
 #define O_STRUCT_GUARD_NAME(name) GE_CONCATENATE(name, Guard)
+#define O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(name) GE_CONCATENATE(name, BinarySemaphoreGuard)
 
 //use it in scopes, so the lock gets destroyed
 #define O_DEFINE_STRUCT_GUARD(dataTypeName, mutexType)\
     struct O_STRUCT_GUARD_NAME(dataTypeName)\
     {\
         public:\
+        O_STRUCT_GUARD_NAME(dataTypeName)() = default;\
         O_STRUCT_GUARD_NAME(dataTypeName) (mutexType& _mutex, dataTypeName* _data)\
-            : m_Lock(_mutex), m_Pointer(_data) { ::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been locked."); }\
+            : m_Lock(_mutex), m_Pointer(_data) { /*::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been locked.");*/ }\
         O_STRUCT_GUARD_NAME(dataTypeName)(O_STRUCT_GUARD_NAME(dataTypeName)&& other) noexcept = default;\
         O_STRUCT_GUARD_NAME(dataTypeName)& operator=(O_STRUCT_GUARD_NAME(dataTypeName)&& other) noexcept = default;\
-        ~O_STRUCT_GUARD_NAME(dataTypeName)() { ::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been deleted."); }\
-        dataTypeName* operator->() { return m_Pointer; }\
-        void Unlock() { ::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been unlocked."); m_Pointer = nullptr; m_Lock.unlock(); }\
+        ~O_STRUCT_GUARD_NAME(dataTypeName)() { /*::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been deleted.");*/ }\
+        dataTypeName* const operator->() { return m_Pointer; }\
+        const dataTypeName* const operator->() const { return m_Pointer; }\
+        dataTypeName* const operator*() const { return m_Pointer; }\
+        void Unlock() { /*::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been unlocked.");*/ m_Pointer = nullptr; m_Lock.unlock(); }\
         private:\
         std::unique_lock<mutexType> m_Lock;\
         dataTypeName* m_Pointer;\
     }
 #define O_DEFINE_STRUCT_GUARD_STD_MUTEX(dataTypeName) O_DEFINE_STRUCT_GUARD(dataTypeName, std::mutex)
 
-#define O_DEFINE_STRUCT_GUARD_GETTER(dataTypeName, ptrDataName, mutexName) O_STRUCT_GUARD_NAME(dataTypeName) GE_CONCATENATE(Access, dataTypeName)() { return { mutexName, ptrDataName }; }
+//use it in scopes, so the semaphore gets unlocked
+#define O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE(dataTypeName)\
+    struct O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)\
+    {\
+        public:\
+        O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)() = default;\
+        O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName) (std::binary_semaphore* binarySemaphore, dataTypeName* _data)\
+            : m_BinarySemaphore(binarySemaphore), m_Pointer(_data) { /*::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been locked.");*/ m_BinarySemaphore->acquire(); }\
+        O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)(O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)&& other) noexcept = default;\
+        O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)& operator=(O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)&& other) noexcept = default;\
+        ~O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName)() { /*::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been deleted.");*/ Unlock(); }\
+        dataTypeName* const operator->() { return m_Pointer; }\
+        const dataTypeName* const operator->() const { return m_Pointer; }\
+        dataTypeName* const operator*() const { return m_Pointer; }\
+        void Unlock() { /*::GuelderConsoleLog::LogWarning(m_Pointer, ' ', GE_TO_STRING(dataTypeName), " has been unlocked.");*/ m_Pointer = nullptr; m_BinarySemaphore->release(); }\
+        private:\
+        std::binary_semaphore* m_BinarySemaphore;\
+        dataTypeName* m_Pointer;\
+    }
+
+#define O_DEFINE_STRUCT_GUARD_GETTER(dataTypeName, ptrDataName, syncObjectName) O_STRUCT_GUARD_NAME(dataTypeName) GE_CONCATENATE(Access, dataTypeName)() { return { syncObjectName, ptrDataName }; }
+#define O_DEFINE_STRUCT_GUARD_BINARY_SEMAPHORE_GETTER(dataTypeName, ptrDataName, syncObjectName) O_STRUCT_GUARD_BINARY_SEMAPHORE_NAME(dataTypeName) GE_CONCATENATE(AccessBinarySemaphore, dataTypeName)() { return { syncObjectName, ptrDataName }; }
 
 namespace Orchestra
 {

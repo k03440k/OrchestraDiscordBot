@@ -187,7 +187,8 @@ namespace Orchestra
     }
     bool DiscordBot::IsValidParamValueChar(char ch)
     {
-        return IsValidParamNameChar(ch) || ch == '.' || ch == ',' || ch == '-';
+        return ch != ' ';
+        //return IsValidParamNameChar(ch) || ch == '.' || ch == ',' || ch == '-';
         //return !IsSpecialChar(ch) || ch == '-';
     }
 }

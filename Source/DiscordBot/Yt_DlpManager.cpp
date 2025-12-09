@@ -199,26 +199,48 @@ namespace Orchestra
     {
         const std::string pipeCommand = GuelderConsoleLog::Logger::Format(yt_dlpExecutablePath.string(), " -f bestaudio --get-url \"", url, '\"');
 
-        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand(pipeCommand, 1);
+        auto expected = GuelderResourcesManager::ResourcesManager::ExecuteCommand(pipeCommand, 1);
 
-        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp");
+        O_ASSERT(expected.has_value() && !expected.value().empty(), "Failed to retrieve raw audio URL from yt-dlp");
 
-        return output[0];
+        return expected.value()[0];
     }
     std::string Yt_DlpManager::GetRawURLFromURL(const std::string_view& url) const
     {
         return GetRawURLFromURL(m_Yt_dlpExecutablePath, url);
     }
 
+
+
+#ifdef WIN32
+    GuelderResourcesManager::ResourcesManager::ProcessReadInfo Yt_DlpManager::StartGetRawURLFromURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url)
+    {
+        const std::string pipeCommand = GuelderConsoleLog::Logger::Format(yt_dlpExecutablePath.string(), " -f bestaudio --get-url --no-update --no-warnings \"", url, '\"');
+
+        return GuelderResourcesManager::ResourcesManager::StartCommandWin(pipeCommand);
+    }
+    GuelderResourcesManager::ResourcesManager::ProcessReadInfo Yt_DlpManager::StartGetRawURLFromURL(const std::string_view& url) const
+    {
+        const std::string pipeCommand = GuelderConsoleLog::Logger::Format(m_Yt_dlpExecutablePath.string(), " -f bestaudio --get-url --no-update --no-warnings \"", url, '\"');
+
+        return GuelderResourcesManager::ResourcesManager::StartCommandWin(pipeCommand);
+    }
+
+    std::expected<std::vector<std::string>, int> Yt_DlpManager::FinishGetRawURLFromURL(const GuelderResourcesManager::ResourcesManager::ProcessReadInfo& processReadInfo)
+    {
+        return GuelderResourcesManager::ResourcesManager::FinishCommandWin(processReadInfo.processInfo.processInfo.hProcess, processReadInfo.readPipe.handle, 1);
+    }
+#endif
+
     std::string Yt_DlpManager::GetRawURLFromSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine)
     {
         const std::string pipeCommand = GuelderConsoleLog::Logger::Format(yt_dlpExecutablePath.string(), " -f bestaudio --get-url \"", SearchEngineToString(searchEngine), "search:", input, "\"");
 
-        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
+        auto expected = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
 
-        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp");
+        O_ASSERT(expected.has_value() && !expected.value().empty(), "Failed to retrieve raw audio URL from yt-dlp");
 
-        return output[0];
+        return expected.value()[0];
     }
     std::string Yt_DlpManager::GetRawURLFromSearch(const std::string_view& input, SearchEngine searchEngine) const
     {
@@ -287,12 +309,12 @@ namespace Orchestra
 
         //GE_LOG(Orchestra, Warning, pipeCommand);
 
-        const std::vector<std::string> output = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
+        auto expected = GuelderResourcesManager::ResourcesManager::ExecuteCommand<wchar_t, char>(GuelderResourcesManager::StringToWString(pipeCommand), 1);
 
-        O_ASSERT(!output.empty(), "Failed to retrieve raw audio URL from yt-dlp.");
+        O_ASSERT(expected.has_value() && !expected.value().empty(), "Failed to retrieve JSON from yt-dlp");
 
         //GE_LOG(Orchestra, Warning, output[0]);
-        JSON.Parse(output[0].c_str());
+        JSON.Parse(expected.value()[0].c_str());
 
         O_ASSERT(!JSON.HasParseError(), "Failed to parse JSON at offset ", JSON.GetErrorOffset());
 

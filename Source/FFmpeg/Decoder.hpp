@@ -72,6 +72,8 @@ namespace Orchestra
         int GetMaxBufferSize() const;
 
         int64_t GetCurrentTimestamp() const;
+        int GetBytesPerSample() const;
+        int GetChannelsCount() const;
 
         double GetTimestampToSecondsRatio() const;
 

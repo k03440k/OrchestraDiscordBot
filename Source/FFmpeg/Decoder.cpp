@@ -374,6 +374,15 @@ namespace Orchestra
         return m_Frame->pts;
     }
 
+    int Decoder::GetBytesPerSample() const
+    {
+        return av_get_bytes_per_sample(m_OutSampleFormat);
+    }
+    int Decoder::GetChannelsCount() const
+    {
+        return m_CodecContext->ch_layout.nb_channels;
+    }
+
     double Decoder::GetTimestampToSecondsRatio() const
     {
         return av_q2d(GetStream()->time_base);

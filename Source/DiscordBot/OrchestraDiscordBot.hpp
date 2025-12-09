@@ -41,6 +41,7 @@ namespace Orchestra
         const dpp::snowflake& GetBossSnowflake() const;
 
         void RegisterCommands() override;
+        void Shutdown(bool waitToLeaveFromVoiceChannels = true);
 
     private:
         void CommandHelp(const dpp::message_create_t& message, const std::vector<Param>& params, const std::string_view& value);
@@ -69,7 +70,7 @@ namespace Orchestra
         void WaitUntilJoined(const dpp::snowflake& guildID, const std::chrono::milliseconds& delay);
         dpp::voiceconn* IsVoiceConnectionReady(const dpp::snowflake& guildID);
 
-        void AddToQueue(const std::string_view& commandName, const dpp::message_create_t& message, const std::vector<Param>& params, std::string value, size_t insertIndex = std::numeric_limits<size_t>::max());
+        void AddToQueue(TracksQueue* tracksQueue, const std::string_view& commandName, const dpp::message_create_t& message, const std::vector<Param>& params, std::string value, size_t insertIndex = std::numeric_limits<size_t>::max());
 
         template<GuelderConsoleLog::Concepts::STDOut... Args>
         static void Reply(const dpp::message_create_t& message, Args&&... args)
@@ -90,7 +91,7 @@ namespace Orchestra
 
         void SendEmbedsSequentially(const dpp::message_create_t& event, const std::vector<dpp::embed>& embeds, size_t index = 0);
 
-        uint32_t GetCurrentPlaylistIndex(const dpp::snowflake& guildID);
+        uint32_t GetCurrentPlaylistIndex(const dpp::snowflake& guildID, const TracksQueue* tracksQueue);
         void ReplyWithInfoAboutTrack(const dpp::snowflake& guildID, const dpp::message_create_t& message, const TrackInfo& trackInfo, bool outputURL = true, bool printCurrentTimestamp = false);
 
         BotInstance& GetBotInstance(const dpp::snowflake& guildID);

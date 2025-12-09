@@ -427,7 +427,7 @@ namespace Orchestra
 
                         BotInstance& botInstance = GetBotInstance(message.msg.guild_id);
 
-                        auto properties = botInstance.AccessOrchestraDiscordBotInstanceProperties();
+                        auto properties = botInstance.AccessBinarySemaphoreOrchestraDiscordBotInstanceProperties();
 
                         if(const auto foundCommandPrefix = std::ranges::search(content, properties->commandsPrefix); foundCommandPrefix.begin() == content.begin())
                         {
@@ -490,7 +490,7 @@ namespace Orchestra
 
                         try
                         {
-                            auto properties = botInstance.AccessOrchestraDiscordBotInstanceProperties();
+                            auto properties = botInstance.AccessBinarySemaphoreOrchestraDiscordBotInstanceProperties();
 
                             if(const auto foundCommandPrefix = std::ranges::search(content, properties->commandsPrefix); !message.msg.content.empty() && foundCommandPrefix.begin() == content.begin())
                             {
@@ -541,6 +541,27 @@ namespace Orchestra
             );
         }
     }
+
+    void OrchestraDiscordBot::Shutdown(bool waitToLeaveFromVoiceChannels)
+    {
+        //disconnect
+        for(auto guildID : std::views::keys(m_GuildsBotInstances))
+        {
+            dpp::voiceconn* voice = this->get_shard(0)->get_voice(guildID);
+
+            if(voice && voice->voiceclient && voice->is_ready())
+                this->get_shard(0)->disconnect_voice(guildID);
+        }
+
+        if(waitToLeaveFromVoiceChannels)
+            for(auto botInstance : std::views::values(m_GuildsBotInstances))
+            {
+                std::unique_lock lock{ botInstance.joinMutex };
+                botInstance.joinedCondition.wait_for(lock, std::chrono::milliseconds(10), [this, &botInstance] { return botInstance.isJoined == false; });
+            }
+
+        shutdown();
+    }
 }
 //idk
 namespace Orchestra
@@ -573,8 +594,9 @@ namespace Orchestra
         return voice;
     }
 
-    void OrchestraDiscordBot::AddToQueue(const std::string_view& commandName, const dpp::message_create_t& message, const std::vector<Param>& params, std::string value, size_t insertIndex)
+    void OrchestraDiscordBot::AddToQueue(TracksQueue* tracksQueue, const std::string_view& commandName, const dpp::message_create_t& message, const std::vector<Param>& params, std::string value, size_t insertIndex)
     {
+        //TODO: make so that it waits for a result, which is being processed in a separate queue and if track is skipped, do not give a shit about the result and skip this method
         struct PlayParams
         {
             float speed = 1.f;
@@ -589,7 +611,6 @@ namespace Orchestra
 
         BotInstance& botInstance = GetBotInstance(message.msg.guild_id);
         BotPlayer& botPlayer = botInstance.player;
-        auto tracksQueue = botPlayer.AccessTracksQueue();
 
         const size_t queueTracksSizeBefore = tracksQueue->GetTracksSize();
 
@@ -640,18 +661,18 @@ namespace Orchestra
                     searchEngine = StringToSearchEngine(playParams.searchEngine);
                 }
 
-                tracksQueue->FetchSearch(m_Paths.yt_dlpExecutablePath, value, searchEngine, playParams.speed, playParams.repeat, insertIndex);
+                tracksQueue->FetchSearch(m_Paths.yt_dlpExecutablePath, value, searchEngine, playParams.speed, playParams.repeat, insertIndex, true);
             }
             else
             {
                 GetParamValue(params, GetParamName(commandName, "shuffle"), playParams.doShuffle);
 
-                tracksQueue->FetchURL(m_Paths.yt_dlpExecutablePath, value, m_RandomEngine, playParams.doShuffle, playParams.speed, static_cast<size_t>(playParams.repeat), insertIndex);
+                tracksQueue->FetchURL(m_Paths.yt_dlpExecutablePath, value, m_RandomEngine, playParams.doShuffle, playParams.speed, static_cast<size_t>(playParams.repeat), insertIndex, true);
             }
         }
         else
         {
-            O_ASSERT(message.msg.author.id == botInstance.AccessOrchestraDiscordBotInstanceProperties()->adminSnowflake, "The user tried to access admin's file, while not being the admin.");
+            O_ASSERT(message.msg.author.id == botInstance.AccessBinarySemaphoreOrchestraDiscordBotInstanceProperties()->adminSnowflake, "The user tried to access admin's file, while not being the admin.");
 
             tracksQueue->FetchRaw(std::move(value), playParams.speed, playParams.repeat, insertIndex);
         }
@@ -680,10 +701,9 @@ namespace Orchestra
             });
     }
 
-    uint32_t OrchestraDiscordBot::GetCurrentPlaylistIndex(const dpp::snowflake& guildID)
+    uint32_t OrchestraDiscordBot::GetCurrentPlaylistIndex(const dpp::snowflake& guildID, const TracksQueue* tracksQueue)
     {
         BotPlayer& botPlayer = GetBotPlayer(guildID);
-        auto tracksQueue = botPlayer.AccessTracksQueue();
 
         if(botPlayer.currentPlaylistIndex == std::numeric_limits<uint32_t>::max())
         {
@@ -782,7 +802,7 @@ namespace Orchestra
         using namespace GuelderResourcesManager;
 
         BotInstance& botInstance = GetBotInstance(message.guild_id);
-        auto properties = botInstance.AccessOrchestraDiscordBotInstanceProperties();
+        auto properties = botInstance.AccessBinarySemaphoreOrchestraDiscordBotInstanceProperties();
 
         std::lock_guard lock{ m_HistoryLogMutex };
 
@@ -943,7 +963,7 @@ namespace Orchestra
             scope = ConfigFile::Parser::WriteVariables(std::move(scope), vars);
         }
 
-//probably I need a recursive mutex. after this being finished, I'm making a commit
+        //probably I need a recursive mutex. after this being finished, I'm making a commit
 #if 0
         if(message.message_reference.message_id)
         {

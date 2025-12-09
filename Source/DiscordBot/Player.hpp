@@ -55,7 +55,8 @@ namespace Orchestra
         void ClearEqualizer();
 
     public:
-        void SetAudioSampleRate(uint32_t sampleRate);
+        void SetAudioSampleRate(int sampleRate);
+        int GetAudioSampleRate() const;
 
         void SetEnableLogSentPackets(bool enable);
         void SetSentPacketSize(uint32_t size);
@@ -66,7 +67,7 @@ namespace Orchestra
         bool GetEnableLogSentPackets() const noexcept;
         uint32_t GetSentPacketSize() const noexcept;
 
-        float GetCurrentTimestamp() const noexcept;
+        float GetCurrentTimestamp() const;
         //if return is 0, then there are no decoders
         float GetTotalDuration() const;
 
@@ -102,7 +103,8 @@ namespace Orchestra
         std::condition_variable m_PauseCondition;
         std::mutex m_PauseMutex;
 
-        std::atomic<float> m_CurrentTimestamp;
+        //this one DOESN'T show the current timestamp in real time, but it shows till which seconds frames have been decoded
+        std::atomic<float> m_CurrentDecodingTimestamp;
 
         BassBoostSettings m_BassBoostSettings;
         //first - frequency, second - decibels boost

@@ -31,10 +31,10 @@ namespace Orchestra
         TracksQueue(TracksQueue&& other) noexcept = default;
         TracksQueue& operator=(TracksQueue&& other) noexcept = default;
 
-        void FetchURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url, std::mt19937 randomEngine = {}, bool doShuffle = false, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max());
-        void FetchURL(const std::string_view& url, std::mt19937 randomEngine = {}, bool doShuffle = false, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max());
-        void FetchSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max());
-        void FetchSearch(const std::string_view& input, SearchEngine searchEngine, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max());
+        void FetchURL(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& url, std::mt19937 randomEngine = {}, bool doShuffle = false, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max(), bool lookForRawURLOfOneTrack = false);
+        void FetchURL(const std::string_view& url, std::mt19937 randomEngine = {}, bool doShuffle = false, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max(), bool lookForRawURL = false);
+        void FetchSearch(const std::filesystem::path& yt_dlpExecutablePath, const std::string_view& input, SearchEngine searchEngine, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max(), bool lookForRawURL = false);
+        void FetchSearch(const std::string_view& input, SearchEngine searchEngine, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max(), bool lookForRawURL = false);
         //fills rawURL, NOT URL
         void FetchRaw(std::string url, float speed = 1.f, size_t repeat = 1, size_t insertIndex = std::numeric_limits<size_t>::max());
 
@@ -71,6 +71,7 @@ namespace Orchestra
         void SetTrackDuration(size_t index, float duration);
         void SetTrackSpeed(size_t index, float speed);
         void SetTrackRepeatCount(size_t index, size_t repeatCount);
+        void SetTrackRawURL(size_t index, std::string rawURL);
 
         void SetPlaylistTitle(size_t index, std::string title);
         void SetPlaylistRepeatCount(size_t index, size_t repeatCount);
